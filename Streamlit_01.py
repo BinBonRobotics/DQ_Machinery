@@ -17,7 +17,7 @@ try:
 
     # 5. Giao diện tìm kiếm
 # 5. Giao diện tìm kiếm - Làm ngắn lại bằng cách chia cột
-    col1, col2 = st.columns([1, 6]) 
+    col1, col2 = st.columns([1, 3]) 
     with col1:
         # Nhắc người dùng dùng dấu chấm phẩy hoặc dấu phẩy để ngăn cách
         search_query = st.text_input("Nhập Part numbers:", placeholder="Ví dụ: 4014020227; 2056186140")
