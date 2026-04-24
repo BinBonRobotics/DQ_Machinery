@@ -16,9 +16,15 @@ try:
     df = conn.read(spreadsheet=url, ttl=0)
 
     # 5. Giao diện tìm kiếm
-    search_query = st.text_input("Nhập Part number cần tìm:", placeholder="Ví dụ: 4014020621...")
+# 5. Giao diện tìm kiếm - Làm ngắn lại bằng cách chia cột
+    col1, col2, col3 = st.columns([2, 2, 1]) # Chia tỉ lệ 2:2:1
+    
+    with col1:
+        # Ô search bây giờ chỉ nằm gọn trong cột đầu tiên
+        search_query = st.text_input("Nhập Part number cần tìm:", placeholder="Ví dụ: 4014020621...")
 
     if search_query:
+        # Dùng str.contains để tìm kiếm linh hoạt (chỉ cần gõ vài số cuối là ra)
         result = df[df['Part number'].astype(str).str.contains(search_query, case=False)]
         if not result.empty:
             st.success(f"Tìm thấy {len(result)} mã hàng!")
