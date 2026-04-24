@@ -17,23 +17,33 @@ try:
 
     # 5. Giao diện tìm kiếm
 # 5. Giao diện tìm kiếm - Làm ngắn lại bằng cách chia cột
-    # Chia tỷ lệ 1:3 (Ô search chiếm 1 phần, khoảng trống chiếm 3 phần)
-    col1, col2 = st.columns([1, 6])
-    
+    col1, col2 = st.columns([1, 6]) 
     with col1:
-        # Ô search bây giờ chỉ nằm gọn trong cột đầu tiên
-        search_query = st.text_input("Nhập Part number cần tìm:", placeholder="Ví dụ: 4014020621...")
+        # Nhắc người dùng dùng dấu chấm phẩy hoặc dấu phẩy để ngăn cách
+        search_query = st.text_input("Nhập Part numbers:", placeholder="Ví dụ: 4014020227; 2056186140")
 
     if search_query:
-        # Dùng str.contains để tìm kiếm linh hoạt (chỉ cần gõ vài số cuối là ra)
-        result = df[df['Part number'].astype(str).str.contains(search_query, case=False)]
+        # BƯỚC QUAN TRỌNG: Tách chuỗi người dùng nhập thành danh sách các mã
+        # Thay thế dấu phẩy bằng dấu chấm phẩy, sau đó tách theo dấu chấm phẩy
+        list_ma = [s.strip() for s in search_query.replace(',', ';').split(';') if s.strip()]
+        
+        # Lọc dữ liệu: Tìm các Part number nằm trong danh sách list_ma
+        # .isin() là hàm cực mạnh để tìm nhiều giá trị cùng lúc
+        result = df[df['Part number'].astype(str).isin(list_ma)]
+        
         if not result.empty:
-            st.success(f"Tìm thấy {len(result)} mã hàng!")
+            st.success(f"🔍 Đã tìm thấy {len(result)} mã trong danh sách bạn nhập.")
             st.table(result)
+            
+            # Nếu có mã nào không tìm thấy, báo cho người dùng biết
+            ma_tim_thay = result['Part number'].astype(str).tolist()
+            ma_khong_thay = [m for m in list_ma if m not in ma_tim_thay]
+            if ma_khong_thay:
+                st.warning(f"⚠️ Không tìm thấy: {', '.join(ma_khong_thay)}")
         else:
-            st.warning("⚠️ Không tìm thấy mã này.")
+            st.warning("❌ Không tìm thấy mã nào trong danh sách trên.")
     else:
-        st.info("💡 Nhập mã vào ô trên để kiểm tra giá.")
+        st.info("💡 Nhập một hoặc nhiều mã (cách nhau bởi dấu ;) để kiểm tra.")
         st.dataframe(df, use_container_width=True)
 
 except Exception as e:
