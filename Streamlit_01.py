@@ -18,7 +18,7 @@ try:
     # 5. Giao diện tìm kiếm
 # 5. Giao diện tìm kiếm - Làm ngắn lại bằng cách chia cột
     # Chia tỷ lệ 1:3 (Ô search chiếm 1 phần, khoảng trống chiếm 3 phần)
-    col1, col2 = st.columns([1, 3])
+    col1, col2 = st.columns([1, 4])
     
     with col1:
         # Ô search bây giờ chỉ nằm gọn trong cột đầu tiên
