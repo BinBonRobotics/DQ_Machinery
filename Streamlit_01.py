@@ -4,7 +4,7 @@ from streamlit_gsheets import GSheetsConnection
 # 1. Cấu hình giao diện
 st.set_page_config(page_title="Tra cứu vật tư DQ", layout="wide")
 st.title("🛡️ D&Q Machinery - Homag Partner")
-
+st.title("🛡️Deutsch & Qualität Machinery - Homag Partner")
 # 2. Link file - dùng link sạch
 url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
 
