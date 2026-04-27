@@ -119,4 +119,58 @@ def chuc_nang_bao_gia(df_vattu, df_customer):
                     st.error("Mã không tồn tại!")
 
         # Hiển thị bảng giỏ hàng hiện tại
-        if st.session_state
+        if st.session_state['cart']:
+            df_cart = pd.DataFrame(st.session_state['cart'])
+            st.table(df_cart)
+            if st.button("🗑️ Xóa giỏ hàng"):
+                st.session_state['cart'] = []
+                st.rerun()
+            
+            st.button("🖨️ Xuất File PDF (Sẽ cập nhật sau)")
+    else:
+        st.info("Vui lòng chọn khách hàng để tiếp tục.")
+
+# ==========================================
+# 2. CHƯƠNG TRÌNH CHÍNH (MAIN)
+# ==========================================
+
+def main():
+    st.set_page_config(page_title="D&Q Machinery", layout="wide")
+    url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
+
+    if 'logged_in' not in st.session_state:
+        st.session_state['logged_in'] = False
+
+    if not st.session_state['logged_in']:
+        df_user = load_data(url, "members") 
+        st.title("🛡️ D&Q Machinery - Portal")
+        chuc_nang_dang_nhap(df_user)
+    else:
+        # SIDEBAR NAVIGATION
+        st.sidebar.markdown(f"### 👤 {st.session_state['display_name']}")
+        st.sidebar.markdown(f"**Quyền hạn:** `{st.session_state['user_role']}`")
+        
+        if st.sidebar.button("🚪 Đăng xuất"):
+            st.session_state['logged_in'] = False
+            st.session_state['cart'] = [] # Xóa giỏ hàng khi thoát
+            st.rerun()
+
+        st.sidebar.divider()
+        
+        # MENU CHỌN TÍNH NĂNG
+        menu = st.sidebar.radio(
+            "CHỨC NĂNG HỆ THỐNG",
+            ["🔍 Quản lý Phụ tùng", "📄 Báo giá Phụ tùng"]
+        )
+
+        # LOAD TẤT CẢ DỮ LIỆU CẦN THIẾT
+        df_vattu = load_data(url, "sp-list")
+        df_customer = load_data(url, "customer-machine")
+
+        if menu == "🔍 Quản lý Phụ tùng":
+            chuc_nang_tra_cuu_vat_tu(df_vattu)
+        elif menu == "📄 Báo giá Phụ tùng":
+            chuc_nang_bao_gia(df_vattu, df_customer)
+
+if __name__ == "__main__":
+    main()
