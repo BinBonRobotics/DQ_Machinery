@@ -8,22 +8,19 @@ import pandas as pd
 
 @st.cache_data(ttl=3600)
 def load_data(url_link, sheet_name):
-    """Tải dữ liệu và chuẩn hóa tên cột + định dạng số"""
+    """Tải dữ liệu và chuẩn hóa định dạng số nguyên cho ID và Tax Code"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         data = conn.read(spreadsheet=url_link, worksheet=sheet_name, ttl=0)
-        # 1. Xóa khoảng trắng thừa ở tên cột
         data.columns = data.columns.str.strip()
         
-        # 2. Tự động xử lý các cột số dễ bị lỗi thập phân .0
-        cols_to_fix = ['Customer no', 'Tax Code', 'Machine No', 'Part number', 'Price']
-        for col in data.columns:
-            if col in cols_to_fix:
-                # Chuyển về số, lỗi thì để NaN, sau đó thay NaN bằng 0, ép về kiểu Int rồi thành chuỗi
+        # CHỈ ép kiểu số nguyên cho các cột mã số để xóa .0
+        # Không ép kiểu toàn bộ để tránh mất dữ liệu Machine No nếu có chứa chữ
+        for col in ['Customer no', 'Tax Code']:
+            if col in data.columns:
                 data[col] = pd.to_numeric(data[col], errors='coerce').fillna(0).astype(int).astype(str)
-                # Nếu là '0' thì để trống cho đẹp giao diện
                 data[col] = data[col].replace('0', '')
-                
+        
         return data
     except Exception as e:
         st.error(f"❌ Lỗi khi tải Sheet '{sheet_name}': {e}")
@@ -56,7 +53,7 @@ def chuc_nang_tra_cuu_vat_tu(df_vattu):
     st.header("🔍 Hệ thống Tra cứu Phụ tùng")
     col_search, _ = st.columns([2, 6])
     with col_search:
-        search_query = st.text_input("Nhập Part numbers (cách nhau bởi dấu ;):")
+        search_query = st.text_input("Nhập Part numbers:")
     
     if search_query:
         list_ma = [s.strip() for s in search_query.replace(',', ';').split(';') if s.strip()]
@@ -78,7 +75,7 @@ def chuc_nang_bao_gia(df_vattu, df_customer):
 
     st.subheader("1. Thông tin khách hàng")
     
-    # Layout nhỏ lại tỷ lệ [2:6]
+    # Thanh chọn khách hàng nhỏ [2:6]
     col_sel, _ = st.columns([2, 6])
     with col_sel:
         list_customers = sorted(df_customer['Customer-name'].dropna().unique().tolist())
@@ -89,15 +86,16 @@ def chuc_nang_bao_gia(df_vattu, df_customer):
         
         c1, c2, c3 = st.columns(3)
         with c1:
-            # Customer no đã được ép kiểu sạch ở load_data
             st.text_input("Customer no:", value=cus_info.iloc[0]['Customer no'], disabled=True)
             m_types = sorted(cus_info['Machine-Type'].dropna().unique().tolist())
             selected_m_type = st.selectbox("Machine Type:", m_types)
         
         with c2:
-            # Tax Code đã được ép kiểu sạch ở load_data
             st.text_input("Tax Code:", value=cus_info.iloc[0]['Tax Code'], disabled=True)
-            m_nos = sorted(cus_info[cus_info['Machine-Type'] == selected_m_type]['Machine No'].dropna().unique().tolist())
+            # Lọc Machine No dựa trên Machine Type đã chọn
+            # Dùng str() để đảm bảo so sánh chính xác nếu dữ liệu là số
+            df_filtered_m_no = cus_info[cus_info['Machine-Type'].astype(str) == str(selected_m_type)]
+            m_nos = sorted(df_filtered_m_no['Machine No'].dropna().unique().tolist())
             selected_m_no = st.selectbox("Machine No:", m_nos)
             
         with c3:
