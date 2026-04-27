@@ -8,17 +8,21 @@ import pandas as pd
 
 @st.cache_data(ttl=3600)
 def load_data(url_link, sheet_name):
-    """Tải dữ liệu từ Google Sheets"""
+    """Tải dữ liệu và chuẩn hóa tên cột"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         data = conn.read(spreadsheet=url_link, worksheet=sheet_name, ttl=0)
+        
+        # CHỈNH SỬA QUAN TRỌNG: Loại bỏ khoảng trắng thừa trong tên cột
+        data.columns = data.columns.str.strip().str.lower()
+        
         return data
     except Exception as e:
-        st.error(f"❌ Không tìm thấy Sheet: '{sheet_name}'")
+        st.error(f"❌ Lỗi khi tải Sheet '{sheet_name}': {e}")
         return None
 
 def chuc_nang_dang_nhap(df_user):
-    """Xử lý logic đăng nhập bằng Email và Password"""
+    """Xử lý logic đăng nhập"""
     if df_user is None: return
     
     st.markdown("---")
@@ -26,13 +30,18 @@ def chuc_nang_dang_nhap(df_user):
     
     with col_c:
         with st.form("login_form"):
-            # Đổi nhãn hiển thị thành Email theo yêu cầu của bạn
             user_email = st.text_input("Địa chỉ Email đăng nhập")
             pass_input = st.text_input("Mật khẩu", type="password")
             submit_button = st.form_submit_button("Xác nhận Đăng nhập")
             
             if submit_button:
-                # CHỈNH SỬA: Kiểm tra dựa trên cột 'email' và 'password' trong sheet 'members'
+                # Kiểm tra sự tồn tại của cột trước khi truy vấn để tránh KeyError
+                if 'email' not in df_user.columns or 'password' not in df_user.columns:
+                    st.error("❌ Cấu trúc bảng tính không đúng. Cần có cột 'email' và 'password'.")
+                    st.write("Cột hiện có:", list(df_user.columns))
+                    return
+
+                # Thực hiện lọc dữ liệu
                 user_data = df_user[
                     (df_user['email'].astype(str).str.strip() == user_email.strip()) & 
                     (df_user['password'].astype(str).str.strip() == pass_input.strip())
@@ -40,29 +49,31 @@ def chuc_nang_dang_nhap(df_user):
                 
                 if not user_data.empty:
                     st.session_state['logged_in'] = True
-                    # CHỈNH SỬA: Lưu tên từ cột 'name' để hiển thị lời chào
-                    st.session_state['display_name'] = user_data.iloc[0]['name']
-                    st.session_state['user_role'] = user_data.iloc[0]['role']
-                    st.success(f"Chào mừng {st.session_state['display_name']} đã đăng nhập thành công!")
+                    # Lấy tên hiển thị từ cột 'name'
+                    st.session_state['display_name'] = user_data.iloc[0]['name'] if 'name' in df_user.columns else user_email
+                    st.session_state['user_role'] = user_data.iloc[0]['role'] if 'role' in df_user.columns else "N/A"
+                    st.success(f"Chào mừng {st.session_state['display_name']}!")
                     st.rerun()
                 else:
-                    st.error("Sai địa chỉ Email hoặc mật khẩu. Vui lòng thử lại!")
+                    st.error("Sai địa chỉ Email hoặc mật khẩu!")
 
 def chuc_nang_tra_cuu_vat_tu(df):
     """Giao diện tra cứu vật tư"""
     if df is None: return
     st.header("🔍 Hệ thống Tra cứu Phụ tùng")
     
-    col1, col2 = st.columns([1, 3]) 
-    with col1:
-        search_query = st.text_input("Nhập Part numbers:", placeholder="Ví dụ: 4014020227")
+    # Chuẩn hóa tên cột cho dữ liệu vật tư
+    df.columns = df.columns.str.strip()
+    
+    search_query = st.text_input("Nhập Part numbers (cách nhau bởi dấu ;):")
 
     if search_query:
         list_ma = [s.strip() for s in search_query.replace(',', ';').split(';') if s.strip()]
-        result = df[df['Part number'].astype(str).isin(list_ma)]
+        # Đảm bảo dùng đúng tên cột 'Part number'
+        col_name = 'Part number' if 'Part number' in df.columns else df.columns[0]
+        result = df[df[col_name].astype(str).isin(list_ma)]
         
         if not result.empty:
-            st.success(f"Tìm thấy {len(result)} kết quả.")
             st.table(result)
         else:
             st.warning("❌ Không tìm thấy mã nào.")
@@ -82,29 +93,17 @@ def main():
 
     if not st.session_state['logged_in']:
         st.title("🛡️ D&Q Machinery - Portal")
-        # Sử dụng sheet "members" như bạn đã đổi tên
+        # Gọi đúng sheet 'members' đã đổi tên
         df_user = load_data(url, "members") 
-        if df_user is not None:
-            chuc_nang_dang_nhap(df_user)
+        chuc_nang_dang_nhap(df_user)
     else:
-        # CHỈNH SỬA: Hiển thị Tên người dùng thay vì Email ở Sidebar
-        st.sidebar.title(f"👤 {st.session_state['display_name']}")
-        st.sidebar.info(f"Quyền hạn: {st.session_state['user_role']}")
-        
+        st.sidebar.title(f"👤 {st.session_state.get('display_name', 'User')}")
         if st.sidebar.button("🚪 Đăng xuất"):
             st.session_state['logged_in'] = False
             st.rerun()
 
-        # Load dữ liệu từ sheet SP-List
         df_vattu = load_data(url, "SP-List")
-        
-        menu = ["Tra cứu vật tư", "Thông tin khách hàng"]
-        choice = st.sidebar.selectbox("Tính năng:", menu)
-
-        if choice == "Tra cứu vật tư":
-            chuc_nang_tra_cuu_vat_tu(df_vattu)
-        else:
-            st.info("Tính năng đang phát triển...")
+        chuc_nang_tra_cuu_vat_tu(df_vattu)
 
 if __name__ == "__main__":
     main()
