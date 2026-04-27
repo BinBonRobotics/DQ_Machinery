@@ -12,7 +12,7 @@ def load_data(url_link, sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         data = conn.read(spreadsheet=url_link, worksheet=sheet_name, ttl=0)
-        # Giữ nguyên tên cột gốc và xóa khoảng trắng thừa
+        # Loại bỏ khoảng trắng thừa ở đầu/cuối tên cột
         data.columns = data.columns.str.strip()
         return data
     except Exception as e:
@@ -20,79 +20,91 @@ def load_data(url_link, sheet_name):
         return None
 
 def chuc_nang_dang_nhap(df_user):
-    """Xử lý giao diện và logic đăng nhập"""
+    """Xử lý đăng nhập dựa trên file ảnh members bạn gửi"""
     st.markdown("---")
     _, col_c, _ = st.columns([1, 2, 1])
     with col_c:
         with st.form("login_form"):
-            user_email = st.text_input("Địa chỉ Email đăng nhập")
+            # Sử dụng 'name' hoặc 'email' tùy theo cột bạn muốn dùng để đăng nhập
+            user_input = st.text_input("Tên đăng nhập / Email")
             pass_input = st.text_input("Mật khẩu", type="password")
+            
             if st.form_submit_button("Xác nhận Đăng nhập"):
-                # Kiểm tra cột 'email' và 'password' trong sheet members
-                if user_email and pass_input:
-                    user_data = df_user[(df_user['email'] == user_email.strip()) & 
-                                        (df_user['password'] == pass_input.strip())]
-                    if not user_data.empty:
+                if user_input and pass_input:
+                    # Dựa trên ảnh: cột email là 'email', mật khẩu là 'password'
+                    # Lưu ý: Nếu dùng cột user_name thì sửa thành df_user['user_name']
+                    user_match = df_user[
+                        ((df_user['email'] == user_input.strip()) | (df_user['name'] == user_input.strip())) & 
+                        (df_user['password'].astype(str) == pass_input.strip())
+                    ]
+                    
+                    if not user_match.empty:
                         st.session_state['logged_in'] = True
-                        st.session_state['display_name'] = user_data.iloc[0]['name']
-                        st.session_state['user_role'] = user_data.iloc[0]['role']
+                        st.session_state['display_name'] = user_match.iloc[0]['name']
+                        st.session_state['user_role'] = user_match.iloc[0]['role']
                         st.rerun()
                     else:
                         st.error("Sai tài khoản hoặc mật khẩu!")
 
 def chuc_nang_tra_cuu_vat_tu(df_vattu):
-    """Giao diện tra cứu phụ tùng nhanh"""
-    st.header("🔍 Quản lý Phụ tùng")
+    """Tra cứu phụ tùng - Khớp cột 'Part number'"""
+    st.header("🔍 Hệ thống Tra cứu Phụ tùng")
     col_search, _ = st.columns([2, 6])
     with col_search:
-        search_query = st.text_input("Nhập Part numbers:", placeholder="Mã 1; Mã 2...")
+        search_query = st.text_input("Nhập Part numbers (cách nhau bởi dấu ;):")
+    
+    # Tên cột chuẩn trong ảnh của bạn là 'Part number'
+    col_ma = 'Part number'
     
     if search_query:
         list_ma = [s.strip() for s in search_query.replace(',', ';').split(';') if s.strip()]
-        # Lọc theo cột 'part number'
-        result = df_vattu[df_vattu['part number'].astype(str).isin(list_ma)]
-        if not result.empty:
-            st.table(result)
+        if col_ma in df_vattu.columns:
+            result = df_vattu[df_vattu[col_ma].astype(str).isin(list_ma)]
+            if not result.empty:
+                st.dataframe(result, use_container_width=True)
+            else:
+                st.warning("❌ Không tìm thấy mã.")
         else:
-            st.warning("❌ Không tìm thấy mã.")
+            st.error(f"Cột '{col_ma}' không tồn tại. Hãy kiểm tra lại Sheet SP-List")
     else:
         st.dataframe(df_vattu, use_container_width=True)
 
 def chuc_nang_bao_gia(df_vattu, df_customer):
-    """Giao diện tạo báo giá chuyên nghiệp"""
+    """Tạo báo giá - Khớp cột 'Customer-name'"""
     st.header("📄 Tạo Báo giá Phụ tùng")
     
-    if df_customer is None:
-        st.error("Không thể tải dữ liệu khách hàng.")
+    if df_customer is None or df_customer.empty:
+        st.error("Dữ liệu khách hàng trống!")
         return
 
     st.subheader("1. Thông tin khách hàng")
     
-    # CHỈNH SỬA TẠI ĐÂY: Làm nhỏ thanh chọn khách hàng [2:6]
-    col_sel, col_empty = st.columns([2, 6])
+    # Thanh chọn khách hàng nhỏ tỷ lệ [2:6]
+    col_sel, _ = st.columns([2, 6])
     with col_sel:
-        # Lấy danh sách từ cột 'Customer-name' và loại bỏ giá trị trống
-        list_customers = sorted(df_customer['Customer-name'].dropna().unique().tolist())
+        # Cột chuẩn trong ảnh là 'Customer-name'
+        col_cus_name = 'Customer-name'
+        list_customers = sorted(df_customer[col_cus_name].dropna().unique().tolist())
         selected_customer = st.selectbox("Chọn khách hàng:", ["-- Chọn khách hàng --"] + list_customers)
 
     if selected_customer != "-- Chọn khách hàng --":
-        # Lọc thông tin của khách hàng được chọn dựa trên 'Customer-name'
-        cus_info = df_customer[df_customer['Customer-name'] == selected_customer]
+        cus_info = df_customer[df_customer[col_cus_name] == selected_customer]
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            # Khớp cột 'Customer no' và 'Machine-Type'
             st.text_input("Customer no:", value=str(cus_info.iloc[0]['Customer no']), disabled=True)
-            # Lọc Machine-Type
-            list_m_type = sorted(cus_info['Machine-Type'].dropna().unique().tolist())
-            selected_m_type = st.selectbox("Machine Type:", list_m_type)
+            m_types = sorted(cus_info['Machine-Type'].dropna().unique().tolist())
+            selected_m_type = st.selectbox("Machine Type:", m_types)
         
-        with col2:
+        with c2:
+            # Khớp cột 'Tax Code' và 'Machine No'
             st.text_input("Tax Code:", value=str(cus_info.iloc[0]['Tax Code']), disabled=True)
-            # Lọc Machine No theo Machine-Type đã chọn
-            list_m_no = sorted(cus_info[cus_info['Machine-Type'] == selected_m_type]['Machine No'].dropna().unique().tolist())
-            selected_m_no = st.selectbox("Machine No:", list_m_no)
+            m_nos = sorted(cus_info[cus_info['Machine-Type'] == selected_m_type]['Machine No'].dropna().unique().tolist())
+            selected_m_no = st.selectbox("Machine No:", m_nos)
             
-        with col3:
+        with col3 := c3:
+            # Khớp cột 'Address'
             st.text_area("Address:", value=str(cus_info.iloc[0]['Address']), disabled=True, height=100)
 
         st.divider()
@@ -101,25 +113,27 @@ def chuc_nang_bao_gia(df_vattu, df_customer):
         if 'cart' not in st.session_state:
             st.session_state['cart'] = []
 
-        c1, c2, c3 = st.columns([3, 1, 1])
-        with c1:
+        # Nhập liệu phụ tùng
+        ca, cb, cc = st.columns([3, 1, 1])
+        with ca:
             part_input = st.text_input("Nhập mã phụ tùng:")
-        with c2:
+        with cb:
             qty_input = st.number_input("Số lượng:", min_value=1, value=1)
-        with c3:
+        with cc:
             st.write("##")
             if st.button("➕ Thêm"):
-                part_data = df_vattu[df_vattu['part number'].astype(str) == part_input.strip()]
-                if not part_data.empty:
+                # Khớp cột 'Part number', 'Part name', 'Price'
+                part_match = df_vattu[df_vattu['Part number'].astype(str) == part_input.strip()]
+                if not part_match.empty:
                     st.session_state['cart'].append({
                         'Part No': part_input,
-                        'Description': part_data.iloc[0]['part name'],
+                        'Description': part_match.iloc[0]['Part name'],
                         'Qty': qty_input,
-                        'Price': part_data.iloc[0]['price']
+                        'Price': part_match.iloc[0]['Price']
                     })
                     st.success("Đã thêm!")
                 else:
-                    st.error("Mã không khớp!")
+                    st.error("Mã không tồn tại!")
 
         if st.session_state['cart']:
             st.table(pd.DataFrame(st.session_state['cart']))
@@ -141,9 +155,10 @@ def main():
     if not st.session_state['logged_in']:
         df_user = load_data(url, "members") 
         st.title("🛡️ D&Q Machinery - Portal")
-        chuc_nang_dang_nhap(df_user)
+        if df_user is not None:
+            chuc_nang_dang_nhap(df_user)
     else:
-        # SIDEBAR
+        # Giao diện sau đăng nhập
         st.sidebar.markdown(f"### 👤 {st.session_state['display_name']}")
         st.sidebar.markdown(f"**Quyền hạn:** `{st.session_state['user_role']}`")
         if st.sidebar.button("🚪 Đăng xuất"):
@@ -153,14 +168,16 @@ def main():
         st.sidebar.divider()
         menu = st.sidebar.radio("CHỨC NĂNG", ["🔍 Quản lý Phụ tùng", "📄 Báo giá Phụ tùng"])
 
-        # Tải dữ liệu các sheet
+        # Load dữ liệu các sheet khác
         df_vattu = load_data(url, "SP-List")
         df_customer = load_data(url, "Customer-machine")
 
         if menu == "🔍 Quản lý Phụ tùng":
-            chuc_nang_tra_cuu_vat_tu(df_vattu)
+            if df_vattu is not None:
+                chuc_nang_tra_cuu_vat_tu(df_vattu)
         else:
-            chuc_nang_bao_gia(df_vattu, df_customer)
+            if df_vattu is not None and df_customer is not None:
+                chuc_nang_bao_gia(df_vattu, df_customer)
 
 if __name__ == "__main__":
     main()
