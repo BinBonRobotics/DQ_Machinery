@@ -82,3 +82,94 @@ def chuc_nang_bao_gia(df_vattu, df_customer):
     col_sel, _ = st.columns([2, 6])
     with col_sel:
         list_customers = sorted(df_customer['Customer-name'].dropna().unique().tolist())
+        selected_customer = st.selectbox("Chọn khách hàng:", ["-- Chọn khách hàng --"] + list_customers)
+
+    if selected_customer != "-- Chọn khách hàng --":
+        cus_info = df_customer[df_customer['Customer-name'] == selected_customer]
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            # Customer no đã được ép kiểu sạch ở load_data
+            st.text_input("Customer no:", value=cus_info.iloc[0]['Customer no'], disabled=True)
+            m_types = sorted(cus_info['Machine-Type'].dropna().unique().tolist())
+            selected_m_type = st.selectbox("Machine Type:", m_types)
+        
+        with c2:
+            # Tax Code đã được ép kiểu sạch ở load_data
+            st.text_input("Tax Code:", value=cus_info.iloc[0]['Tax Code'], disabled=True)
+            m_nos = sorted(cus_info[cus_info['Machine-Type'] == selected_m_type]['Machine No'].dropna().unique().tolist())
+            selected_m_no = st.selectbox("Machine No:", m_nos)
+            
+        with c3:
+            st.text_area("Address:", value=str(cus_info.iloc[0]['Address']), disabled=True, height=100)
+
+        st.divider()
+        st.subheader("2. Chọn phụ tùng vào Offer")
+        
+        if 'cart' not in st.session_state:
+            st.session_state['cart'] = []
+
+        ca, cb, cc = st.columns([3, 1, 1])
+        with ca:
+            part_input = st.text_input("Nhập mã phụ tùng:")
+        with cb:
+            qty_input = st.number_input("Số lượng:", min_value=1, value=1)
+        with cc:
+            st.write("##")
+            if st.button("➕ Thêm"):
+                part_match = df_vattu[df_vattu['Part number'].astype(str) == part_input.strip()]
+                if not part_match.empty:
+                    st.session_state['cart'].append({
+                        'Part No': part_input,
+                        'Description': part_match.iloc[0]['Part name'],
+                        'Qty': qty_input,
+                        'Price': part_match.iloc[0]['Price']
+                    })
+                    st.success("Đã thêm!")
+                else:
+                    st.error("Mã không tồn tại!")
+
+        if st.session_state['cart']:
+            st.table(pd.DataFrame(st.session_state['cart']))
+            if st.button("🗑️ Xóa danh sách"):
+                st.session_state['cart'] = []
+                st.rerun()
+
+# ==========================================
+# 2. CHƯƠNG TRÌNH CHÍNH (MAIN)
+# ==========================================
+
+def main():
+    st.set_page_config(page_title="D&Q Machinery", layout="wide")
+    url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
+
+    if 'logged_in' not in st.session_state:
+        st.session_state['logged_in'] = False
+
+    if not st.session_state['logged_in']:
+        df_user = load_data(url, "members") 
+        st.title("🛡️ D&Q Machinery - Portal")
+        if df_user is not None:
+            chuc_nang_dang_nhap(df_user)
+    else:
+        st.sidebar.markdown(f"### 👤 {st.session_state['display_name']}")
+        st.sidebar.markdown(f"**Quyền hạn:** `{st.session_state['user_role']}`")
+        if st.sidebar.button("🚪 Đăng xuất"):
+            st.session_state['logged_in'] = False
+            st.rerun()
+
+        st.sidebar.divider()
+        menu = st.sidebar.radio("CHỨC NĂNG", ["🔍 Quản lý Phụ tùng", "📄 Báo giá Phụ tùng"])
+
+        df_vattu = load_data(url, "SP-List")
+        df_customer = load_data(url, "Customer-machine")
+
+        if menu == "🔍 Quản lý Phụ tùng":
+            if df_vattu is not None:
+                chuc_nang_tra_cuu_vat_tu(df_vattu)
+        else:
+            if df_vattu is not None and df_customer is not None:
+                chuc_nang_bao_gia(df_vattu, df_customer)
+
+if __name__ == "__main__":
+    main()
