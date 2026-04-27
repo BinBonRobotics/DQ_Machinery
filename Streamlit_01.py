@@ -18,7 +18,7 @@ def load_data(url_link, sheet_name):
         return None
 
 def chuc_nang_dang_nhap(df_user):
-    """Xử lý logic đăng nhập"""
+    """Xử lý logic đăng nhập bằng Email và Password"""
     if df_user is None: return
     
     st.markdown("---")
@@ -26,25 +26,27 @@ def chuc_nang_dang_nhap(df_user):
     
     with col_c:
         with st.form("login_form"):
-            user_input = st.text_input("Tên đăng nhập (Email)")
+            # Đổi nhãn hiển thị thành Email theo yêu cầu của bạn
+            user_email = st.text_input("Địa chỉ Email đăng nhập")
             pass_input = st.text_input("Mật khẩu", type="password")
             submit_button = st.form_submit_button("Xác nhận Đăng nhập")
             
             if submit_button:
-                # Kiểm tra cột user_name (khớp với hình image_e719f6.png)
+                # CHỈNH SỬA: Kiểm tra dựa trên cột 'email' và 'password' trong sheet 'members'
                 user_data = df_user[
-                    (df_user['user_name'].astype(str).str.strip() == user_input.strip()) & 
+                    (df_user['email'].astype(str).str.strip() == user_email.strip()) & 
                     (df_user['password'].astype(str).str.strip() == pass_input.strip())
                 ]
                 
                 if not user_data.empty:
                     st.session_state['logged_in'] = True
-                    st.session_state['user_id'] = user_input
+                    # CHỈNH SỬA: Lưu tên từ cột 'name' để hiển thị lời chào
+                    st.session_state['display_name'] = user_data.iloc[0]['name']
                     st.session_state['user_role'] = user_data.iloc[0]['role']
-                    st.success("Đăng nhập thành công!")
+                    st.success(f"Chào mừng {st.session_state['display_name']} đã đăng nhập thành công!")
                     st.rerun()
                 else:
-                    st.error("Sai tài khoản hoặc mật khẩu!")
+                    st.error("Sai địa chỉ Email hoặc mật khẩu. Vui lòng thử lại!")
 
 def chuc_nang_tra_cuu_vat_tu(df):
     """Giao diện tra cứu vật tư"""
@@ -80,12 +82,13 @@ def main():
 
     if not st.session_state['logged_in']:
         st.title("🛡️ D&Q Machinery - Portal")
-        # QUAN TRỌNG: Sửa thành "members" để khớp với Tab trên Google Sheets của bạn
+        # Sử dụng sheet "members" như bạn đã đổi tên
         df_user = load_data(url, "members") 
         if df_user is not None:
             chuc_nang_dang_nhap(df_user)
     else:
-        st.sidebar.title(f"👤 {st.session_state['user_id']}")
+        # CHỈNH SỬA: Hiển thị Tên người dùng thay vì Email ở Sidebar
+        st.sidebar.title(f"👤 {st.session_state['display_name']}")
         st.sidebar.info(f"Quyền hạn: {st.session_state['user_role']}")
         
         if st.sidebar.button("🚪 Đăng xuất"):
