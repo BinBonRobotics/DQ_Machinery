@@ -66,7 +66,7 @@ def main():
     st.sidebar.title("⚙️ D&Q Machinery")
     st.sidebar.markdown("---")
     st.sidebar.write("✅ **Tính năng:** Quản lý Phụ tùng")
-    st.sidebar.info("Dữ liệu được lấy trực tiếp từ tab 'SP List'")
+    st.sidebar.info("Dữ liệu được lấy trực tiếp từ tab 'SP-List'")
 
     # Chỉ load duy nhất tab SP List
     df_vattu = load_data(url, "SP-List")
