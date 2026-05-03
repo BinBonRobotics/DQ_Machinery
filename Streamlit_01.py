@@ -8,16 +8,18 @@ import pandas as pd
 
 @st.cache_data(ttl=3600)
 def load_data(url_link, sheet_name):
-    """Tải dữ liệu và chuẩn hóa định dạng số nguyên cho ID và Tax Code"""
+    """Tải toàn bộ dữ liệu và chuẩn hóa định dạng"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         data = conn.read(spreadsheet=url_link, worksheet=sheet_name, ttl=0)
+        # Chuẩn hóa tên cột: xóa khoảng trắng thừa
         data.columns = data.columns.str.strip()
         
-        # CHỈ ép kiểu số nguyên cho các cột mã số để xóa .0
-        # Không ép kiểu toàn bộ để tránh mất dữ liệu Machine No nếu có chứa chữ
-        for col in ['Customer no', 'Tax Code']:
-            if col in data.columns:
+        # Xử lý các cột mã số để không bị hiện .0 (như Part number, Tax Code, v.v.)
+        # Nhưng vẫn giữ nguyên các cột chứa chữ hoặc ký hiệu
+        cols_to_clean = ['Customer no', 'Tax Code', 'Part number']
+        for col in data.columns:
+            if col in cols_to_clean:
                 data[col] = pd.to_numeric(data[col], errors='coerce').fillna(0).astype(int).astype(str)
                 data[col] = data[col].replace('0', '')
         
@@ -25,6 +27,30 @@ def load_data(url_link, sheet_name):
     except Exception as e:
         st.error(f"❌ Lỗi khi tải Sheet '{sheet_name}': {e}")
         return None
+
+def chuc_nang_tra_cuu_vat_tu(df_vattu):
+    """Hiển thị tất cả dòng và cột từ SP-List và hỗ trợ tìm kiếm"""
+    st.header("🔍 Hệ thống Quản lý Phụ tùng (SP-List)")
+    
+    # Khu vực tìm kiếm
+    col_search, _ = st.columns([3, 5])
+    with col_search:
+        search_query = st.text_input("Tìm kiếm theo Part number (cách nhau bởi dấu ;):")
+    
+    # Xử lý hiển thị
+    if search_query:
+        list_ma = [s.strip() for s in search_query.replace(',', ';').split(';') if s.strip()]
+        # Lọc dữ liệu dựa trên Part number
+        result = df_vattu[df_vattu['Part number'].astype(str).isin(list_ma)]
+        if not result.empty:
+            st.success(f"Tìm thấy {len(result)} kết quả.")
+            st.dataframe(result, use_container_width=True)
+        else:
+            st.warning("❌ Không tìm thấy mã trong danh sách.")
+    else:
+        # HIỂN THỊ TẤT CẢ DÒNG VÀ CỘT KHI KHÔNG TÌM KIẾM
+        st.info(f"Đang hiển thị toàn bộ danh sách ({len(df_vattu)} dòng).")
+        st.dataframe(df_vattu, use_container_width=True)
 
 def chuc_nang_dang_nhap(df_user):
     """Xử lý đăng nhập"""
@@ -48,23 +74,6 @@ def chuc_nang_dang_nhap(df_user):
                     else:
                         st.error("Sai tài khoản hoặc mật khẩu!")
 
-def chuc_nang_tra_cuu_vat_tu(df_vattu):
-    """Tra cứu phụ tùng"""
-    st.header("🔍 Hệ thống Tra cứu Phụ tùng")
-    col_search, _ = st.columns([2, 6])
-    with col_search:
-        search_query = st.text_input("Nhập Part numbers:")
-    
-    if search_query:
-        list_ma = [s.strip() for s in search_query.replace(',', ';').split(';') if s.strip()]
-        result = df_vattu[df_vattu['Part number'].astype(str).isin(list_ma)]
-        if not result.empty:
-            st.dataframe(result, use_container_width=True)
-        else:
-            st.warning("❌ Không tìm thấy mã.")
-    else:
-        st.dataframe(df_vattu, use_container_width=True)
-
 def chuc_nang_bao_gia(df_vattu, df_customer):
     """Tạo báo giá chuyên nghiệp"""
     st.header("📄 Tạo Báo giá Phụ tùng")
@@ -74,8 +83,6 @@ def chuc_nang_bao_gia(df_vattu, df_customer):
         return
 
     st.subheader("1. Thông tin khách hàng")
-    
-    # Thanh chọn khách hàng nhỏ [2:6]
     col_sel, _ = st.columns([2, 6])
     with col_sel:
         list_customers = sorted(df_customer['Customer-name'].dropna().unique().tolist())
@@ -92,8 +99,6 @@ def chuc_nang_bao_gia(df_vattu, df_customer):
         
         with c2:
             st.text_input("Tax Code:", value=cus_info.iloc[0]['Tax Code'], disabled=True)
-            # Lọc Machine No dựa trên Machine Type đã chọn
-            # Dùng str() để đảm bảo so sánh chính xác nếu dữ liệu là số
             df_filtered_m_no = cus_info[cus_info['Machine-Type'].astype(str) == str(selected_m_type)]
             m_nos = sorted(df_filtered_m_no['Machine No'].dropna().unique().tolist())
             selected_m_no = st.selectbox("Machine No:", m_nos)
@@ -117,11 +122,13 @@ def chuc_nang_bao_gia(df_vattu, df_customer):
             if st.button("➕ Thêm"):
                 part_match = df_vattu[df_vattu['Part number'].astype(str) == part_input.strip()]
                 if not part_match.empty:
+                    # Lấy thông tin từ các cột mới của bạn
                     st.session_state['cart'].append({
                         'Part No': part_input,
                         'Description': part_match.iloc[0]['Part name'],
+                        'Vietnamese': part_match.iloc[0]['Vietnamese'],
                         'Qty': qty_input,
-                        'Price': part_match.iloc[0]['Price']
+                        'Price': part_match.iloc[0]['Unit Price (VND) 2026']
                     })
                     st.success("Đã thêm!")
                 else:
