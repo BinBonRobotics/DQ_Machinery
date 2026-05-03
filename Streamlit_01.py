@@ -29,7 +29,7 @@ def load_data(url_link, sheet_name):
 
 def chuc_nang_tra_cuu_vat_tu(df_vattu):
     """Hiển thị tất cả dòng và cột từ SP-List"""
-    st.header("🔍 Hệ thống Quản lý Phụ tùng (SP-List)")
+    st.header("🔍 Hệ thống Quản lý Phụ tùng (SP List)")
     
     # Khu vực tìm kiếm
     col_search, _ = st.columns([3, 5])
