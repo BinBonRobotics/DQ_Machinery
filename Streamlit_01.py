@@ -6,75 +6,82 @@ import pandas as pd
 # 1. CÁC CHƯƠNG TRÌNH CON (FUNCTIONS)
 # ==========================================
 
-@st.cache_data(ttl=600) # Lưu cache 10 phút để app mượt hơn
+@st.cache_data(ttl=300) # Cập nhật cache mỗi 5 phút
 def load_data(url_link, sheet_name):
-    """Tải dữ liệu từ Google Sheets và xử lý định dạng"""
+    """Tải dữ liệu và chuẩn hóa để khớp với hàng lối trong Sheets"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
+        # Đọc dữ liệu
         data = conn.read(spreadsheet=url_link, worksheet=sheet_name, ttl=0)
         
         # Làm sạch tên cột
         data.columns = data.columns.str.strip()
         
-        # Xử lý Part number để không bị hiện đuôi .0
+        # Chuyển đổi toàn bộ cột 'Part number' sang chuỗi (string) để tìm kiếm chính xác
+        # và loại bỏ .0 nếu có
         if 'Part number' in data.columns:
-            data['Part number'] = pd.to_numeric(data['Part number'], errors='coerce').fillna(0).astype(int).astype(str)
-            data['Part number'] = data['Part number'].replace('0', '')
+            data['Part number'] = data['Part number'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             
         return data
     except Exception as e:
-        # Hiển thị lỗi cụ thể để dễ debug
         st.error(f"❌ Lỗi khi tải Sheet '{sheet_name}': {e}")
         return None
 
 def chuc_nang_tra_cuu_vat_tu(df_vattu):
-    """Hiển thị toàn bộ danh sách phụ tùng và hỗ trợ tìm kiếm"""
+    """Tính năng tìm kiếm nâng cao và hiển thị đúng số hàng"""
     st.header("🔍 Hệ thống Quản lý Phụ tùng (SP List)")
     
     # Khu vực bộ lọc tìm kiếm
-    col_search, _ = st.columns([3, 5])
+    col_search, _ = st.columns([4, 4])
     with col_search:
-        search_query = st.text_input("Tìm kiếm nhanh (Nhập Part number):")
+        # Hướng dẫn người dùng nhập liệu
+        search_query = st.text_input("Nhập Part number (Dùng dấu ; để tìm nhiều mã):", placeholder="Ví dụ: 30 charge; 40 charge")
     
+    # Xử lý tìm kiếm
     if search_query:
-        # Hỗ trợ tìm kiếm nhiều mã cách nhau bằng dấu ; hoặc ,
-        list_ma = [s.strip() for s in search_query.replace(',', ';').split(';') if s.strip()]
-        result = df_vattu[df_vattu['Part number'].astype(str).isin(list_ma)]
+        # 1. Tách chuỗi bằng dấu ;
+        # 2. Loại bỏ khoảng trắng thừa của từng mã
+        # 3. Loại bỏ các phần tử rỗng
+        list_ma = [s.strip() for s in search_query.split(';') if s.strip()]
+        
+        # Lọc dữ liệu: Kiểm tra xem Part number có nằm trong danh sách list_ma không
+        result = df_vattu[df_vattu['Part number'].isin(list_ma)]
         
         if not result.empty:
-            st.success(f"Tìm thấy {len(result)} kết quả.")
-            st.dataframe(result, use_container_width=True)
+            st.success(f"✅ Tìm thấy {len(result)} kết quả tương ứng.")
+            # Điều chỉnh index hiển thị bắt đầu từ 2 để khớp với hàng trong Google Sheets
+            display_df = result.copy()
+            display_df.index = display_df.index + 2
+            st.dataframe(display_df, use_container_width=True)
         else:
-            st.warning("❌ Không tìm thấy mã trong danh sách.")
+            st.warning(f"❌ Không tìm thấy mã nào khớp với: {', '.join(list_ma)}")
     else:
-        # Mặc định hiển thị toàn bộ tất cả dòng và cột
-        st.info(f"Đang hiển thị toàn bộ danh sách ({len(df_vattu)} dòng).")
-        st.dataframe(df_vattu, use_container_width=True)
+        # Mặc định hiển thị toàn bộ
+        st.info(f"💡 Đang hiển thị toàn bộ danh sách ({len(df_vattu)} dòng).")
+        
+        # Điều chỉnh index hiển thị để hàng đầu tiên là số 2
+        full_display_df = df_vattu.copy()
+        full_display_df.index = full_display_df.index + 2
+        st.dataframe(full_display_df, use_container_width=True)
 
 # ==========================================
 # 2. CHƯƠNG TRÌNH CHÍNH (MAIN)
 # ==========================================
 
 def main():
-    # Cấu hình trang
-    st.set_page_config(page_title="D&Q Machinery - SP-List", layout="wide")
+    st.set_page_config(page_title="D&Q Machinery - SP List", layout="wide")
     
-    # Link Google Sheets của bạn
     url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
 
-    # Sidebar tối giản
     st.sidebar.title("⚙️ D&Q Machinery")
-    st.sidebar.markdown("---")
-    st.sidebar.write("✅ **Tính năng:** Quản lý Phụ tùng")
-    st.sidebar.info("Dữ liệu được lấy trực tiếp từ tab 'SP-List'")
+    st.sidebar.write("---")
+    st.sidebar.info("Chế độ: Truy xuất dữ liệu thời gian thực từ Google Sheets")
 
-    # Chỉ load duy nhất tab SP List
+    # Tải dữ liệu từ tab 'SP List'
     df_vattu = load_data(url, "SP List")
 
     if df_vattu is not None:
         chuc_nang_tra_cuu_vat_tu(df_vattu)
-    else:
-        st.error("Không thể kết nối với dữ liệu. Vui lòng kiểm tra lại tên tab trên Google Sheets hoặc quyền chia sẻ link.")
 
 if __name__ == "__main__":
     main()
