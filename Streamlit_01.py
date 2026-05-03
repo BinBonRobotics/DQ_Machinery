@@ -69,7 +69,7 @@ def main():
     st.sidebar.info("Dữ liệu được lấy trực tiếp từ tab 'SP-List'")
 
     # Chỉ load duy nhất tab SP List
-    df_vattu = load_data(url, "SP-List")
+    df_vattu = load_data(url, "SP List")
 
     if df_vattu is not None:
         chuc_nang_tra_cuu_vat_tu(df_vattu)
