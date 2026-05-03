@@ -57,7 +57,7 @@ def chuc_nang_tra_cuu_vat_tu(df_vattu):
 
 def main():
     # Cấu hình trang
-    st.set_page_config(page_title="D&Q Machinery - SP List", layout="wide")
+    st.set_page_config(page_title="D&Q Machinery - SP-List", layout="wide")
     
     # Link Google Sheets của bạn
     url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
