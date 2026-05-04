@@ -101,7 +101,7 @@ def main():
             else:
                 st.warning("Không tìm thấy mã này.")
         else:
-            st.info("Hiển thị danh sách đầy đủ (Cột B -> U)")
+            st.info("Hiển thị danh sách đầy đủ (Cột A -> U)")
             st.dataframe(df_final, use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
