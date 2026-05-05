@@ -15,8 +15,11 @@ def load_all_data(url_link):
         df_mst = conn.read(spreadsheet=url_link, worksheet="Customer_MST", ttl=0)
         df_contact = conn.read(spreadsheet=url_link, worksheet="Customer_Contact", ttl=0)
         df_machines = conn.read(spreadsheet=url_link, worksheet="List of machines", ttl=0)
+        
+        # Làm sạch tên cột
         for df in [df_sp, df_mst, df_contact, df_machines]:
             df.columns = [c.replace('\n', ' ').strip() for c in df.columns]
+        
         return df_sp, df_mst, df_contact, df_machines
     except Exception as e:
         st.error(f"❌ Lỗi tải dữ liệu: {e}")
@@ -33,6 +36,44 @@ def roundup_to_10k(x):
     if x == 0: return 0
     return math.ceil(x / 10000) * 10000
 
+def tinh_toan_sp(df, ty_gia_moi):
+    df_calc = df.copy()
+    
+    # Hàm dọn dẹp số liệu
+    def clean_num(x):
+        if pd.isna(x) or str(x).strip() in ['-', '']: return 0
+        return pd.to_numeric(str(x).replace(',', '').strip(), errors='coerce') or 0
+
+    # Lấy các cột cần thiết (Giả định cấu trúc bảng của bạn)
+    # Tính toán các cột tài chính
+    gia_net_euro = df_calc['Giá Net Euro'].apply(clean_num)
+    he_so = df_calc['Hệ số'].apply(clean_num)
+    
+    # 1. Tính Giá Net VND = Giá Net Euro * Tỷ giá (Làm tròn lên 10k)
+    net_vnd = (gia_net_euro * ty_gia_moi).apply(roundup_to_10k)
+    
+    # 2. Tính Giá bán = Giá Net VND * Hệ số (Làm tròn lên 10k)
+    gia_ban = (net_vnd * he_so).apply(roundup_to_10k)
+    
+    # 3. Tính Lợi nhuận & Margin
+    profit = gia_ban - net_vnd
+    margin = (profit / gia_ban).fillna(0)
+
+    # Gán giá trị vào dataframe hiển thị
+    df_calc['Giá Net VND'] = net_vnd
+    df_calc['Giá bán'] = gia_ban
+    df_calc['Profit (Lợi nhuận)'] = profit
+    df_calc['Margin (Biên lợi nhuận)'] = margin
+
+    # Định dạng hiển thị số có dấu phẩy cho bảng
+    cols_to_format = ['Giá Net VND', 'Giá bán', 'Profit (Lợi nhuận)']
+    for col in cols_to_format:
+        df_calc[col] = df_calc[col].apply(lambda x: f"{int(x):,}" if x != 0 else "-")
+    
+    df_calc['Margin (Biên lợi nhuận)'] = df_calc['Margin (Biên lợi nhuận)'].apply(lambda x: f"{x:.0%}" if x != 0 else "0%")
+    
+    return df_calc
+
 # ==========================================
 # 2. CHƯƠNG TRÌNH CHÍNH (MAIN)
 # ==========================================
@@ -40,7 +81,7 @@ def roundup_to_10k(x):
 def main():
     st.set_page_config(page_title="D&Q Machinery", layout="wide")
     
-    # CSS tinh chỉnh: Chỉ giảm khoảng cách vừa đủ, không làm đè chữ
+    # CSS tinh chỉnh
     st.markdown("""
         <style>
         .stVerticalBlock { gap: 0.5rem; }
@@ -75,7 +116,6 @@ def main():
                 c_no = format_as_int_str(cust_info['Customer no'])
                 mst_val = format_as_int_str(cust_info['Mã số thuế'])
                 
-                # Hiển thị mã số ngay dưới tên khách hàng
                 st.markdown(f"**Customer no:** {c_no} &nbsp;&nbsp; | &nbsp;&nbsp; **MST:** {mst_val}")
 
             with col2:
@@ -90,29 +130,47 @@ def main():
                     st.selectbox("👤 Contact Person:", options=["Không có dữ liệu"], disabled=True)
 
             # --- KHỐI 2: CHỌN MÁY ---
-            st.markdown("---") # Đường kẻ mỏng phân cách
+            st.markdown("---")
             df_machines['Customer no'] = df_machines['Customer no'].apply(format_as_int_str)
             f_machines = df_machines[df_machines['Customer no'] == c_no]
             m_options = f_machines['Customer Machine'].dropna().unique().tolist()
 
-            col_m1, col_m2 = st.columns(2)
+            col_m1, _ = st.columns(2)
             with col_m1:
                 if m_options:
                     st.selectbox("🛠️ Machine number:", options=m_options)
                 else:
                     st.selectbox("🛠️ Machine number:", options=["Không có dữ liệu"], disabled=True)
             
-            # --- KHỐI 3: ĐỊA CHỈ (DÀN TRẢI ĐỂ DỄ ĐỌC) ---
+            # --- KHỐI 3: ĐỊA CHỈ ---
             st.markdown("**📍 Địa chỉ:**")
             st.info(cust_info['Full Information customer'])
-
             st.divider()
-            st.caption("💡 Thông tin phụ tùng sẽ hiển thị bên dưới.")
 
         elif menu_selection == "🗂️ Master Data":
-            st.header("🗂️ Master Data")
-            # (Phần tinh_toan_sp giữ nguyên như cũ)
-            st.write("Dữ liệu Master Data hiển thị tại đây...")
+            st.header("🗂️ Master Data (Bảng giá tính toán)")
+            
+            # Thực hiện tính toán
+            df_final = tinh_toan_sp(df_sp_raw, ty_gia_input)
+            
+            # Tìm kiếm nhanh trong bảng
+            search_query = st.text_input("🔍 Tìm kiếm phụ tùng (Tên hoặc Part No):", "")
+            if search_query:
+                # Tìm kiếm không phân biệt hoa thường trong tất cả các cột
+                df_final = df_final[df_final.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)]
+
+            # Hiển thị bảng
+            st.dataframe(
+                df_final, 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "Giá Net VND": st.column_config.TextColumn("Giá Net (VND)"),
+                    "Giá bán": st.column_config.TextColumn("Giá Bán (VND)"),
+                    "Margin (Biên lợi nhuận)": st.column_config.TextColumn("Margin")
+                }
+            )
+            st.success(f"✅ Đã tính toán dựa trên tỷ giá Euro = {ty_gia_input:,} VND")
 
 if __name__ == "__main__":
     main()
