@@ -14,21 +14,21 @@ def load_all_data(url_link):
         df_sp = conn.read(spreadsheet=url_link, worksheet="SP List", ttl=0)
         df_mst = conn.read(spreadsheet=url_link, worksheet="Customer_MST", ttl=0)
         df_contact = conn.read(spreadsheet=url_link, worksheet="Customer_Contact", ttl=0)
+        df_machines = conn.read(spreadsheet=url_link, worksheet="List of machines", ttl=0)
         
-        for df in [df_sp, df_mst, df_contact]:
+        for df in [df_sp, df_mst, df_contact, df_machines]:
             df.columns = [c.replace('\n', ' ').strip() for c in df.columns]
         
-        return df_sp, df_mst, df_contact
+        return df_sp, df_mst, df_contact, df_machines
     except Exception as e:
         st.error(f"❌ Lỗi tải dữ liệu: {e}")
-        return None, None, None
+        return None, None, None, None
 
 def roundup_to_10k(x):
     if x == 0: return 0
     return math.ceil(x / 10000) * 10000
 
 def format_as_int_str(val):
-    """Định dạng số nguyên sạch sẽ cho Customer no và MST"""
     if pd.isna(val) or str(val).strip() in ['-', '']: return ""
     try:
         return str(int(float(str(val).replace(',', '').strip())))
@@ -47,7 +47,6 @@ def tinh_toan_sp(df, ty_gia_moi):
     def clean_num(x):
         if pd.isna(x) or str(x).strip() in ['-', '']: return 0
         return pd.to_numeric(str(x).replace(',', '').strip(), errors='coerce') or 0
-
     df_calc = df_calc.iloc[:, 0:21]
     gia_net_euro = df_calc['Giá Net Euro'].apply(clean_num)
     he_so = df_calc['Hệ số'].apply(clean_num)
@@ -55,12 +54,10 @@ def tinh_toan_sp(df, ty_gia_moi):
     gia_ban = (net_vnd * he_so).apply(roundup_to_10k)
     profit = gia_ban - net_vnd
     margin = (profit / gia_ban).fillna(0)
-
     df_calc['Giá Net VND'] = net_vnd.apply(lambda x: f"{int(x):,}" if x != 0 else "-")
     df_calc['Giá bán'] = gia_ban.apply(lambda x: f"{int(x):,}" if x != 0 else "-")
     df_calc['Profit (Lợi nhuận)'] = profit.apply(lambda x: f"{int(x):,}" if x != 0 else "-")
     df_calc['Margin (Biên lợi nhuận)'] = margin.apply(lambda x: f"{x:.0%}")
-
     cols_format = ['Unit Price (VND)', 'Tỷ giá', 'Unit Price (Euro)', 'Thuế Nhập Khẩu VND']
     for col in cols_format:
         if col in df_calc.columns:
@@ -75,7 +72,6 @@ def main():
     st.set_page_config(page_title="D&Q Machinery", layout="wide")
     url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
 
-    # --- SIDEBAR ---
     st.sidebar.title("⚙️ Cấu hình chung")
     ty_gia_input = st.sidebar.number_input("Nhập Tỷ giá Euro mới (VND):", value=31000, step=100)
     if st.sidebar.button("🔄 Làm mới toàn bộ dữ liệu", use_container_width=True):
@@ -85,32 +81,25 @@ def main():
     st.sidebar.markdown("---")
     menu_selection = st.sidebar.radio("📂 Danh mục quản lý:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
-    df_sp_raw, df_mst, df_contact = load_all_data(url)
+    df_sp_raw, df_mst, df_contact, df_machines = load_all_data(url)
 
     if df_sp_raw is not None:
         if menu_selection == "📄 Báo Giá Phụ Tùng":
             st.header("📝 Lập Báo Giá")
             
-            # --- Xử lý dữ liệu ban đầu ---
-            df_mst['Customer name'] = df_mst['Customer name'].astype(str).str.strip()
-            customer_list = sorted(df_mst['Customer name'].unique().tolist())
-
             # --- HÀNG 1: DROP MENU CHỌN KHÁCH HÀNG & NGƯỜI LIÊN HỆ ---
             col_sel_cust, col_sel_cont = st.columns(2)
             
             with col_sel_cust:
+                df_mst['Customer name'] = df_mst['Customer name'].astype(str).str.strip()
+                customer_list = sorted(df_mst['Customer name'].unique().tolist())
                 selected_customer = st.selectbox("🎯 Customer name:", options=customer_list)
                 cust_info = df_mst[df_mst['Customer name'] == selected_customer].iloc[0]
-                # Lấy Customer no làm khóa tham chiếu (đã xử lý số nguyên)
                 customer_no_key = format_as_int_str(cust_info['Customer no'])
                 mst_val = format_as_int_str(cust_info['Mã số thuế'])
 
             with col_sel_cont:
-                # TRUY XUẤT NGƯỜI LIÊN HỆ DỰA TRÊN CUSTOMER NO
-                # Ép kiểu Customer no trong tab Contact về chuỗi sạch để so khớp
                 df_contact['Customer no'] = df_contact['Customer no'].apply(format_as_int_str)
-                
-                # Lọc danh sách người liên hệ thuộc Customer no này
                 filtered_contacts = df_contact[df_contact['Customer no'] == customer_no_key]
                 contact_options = filtered_contacts['Customer contact'].dropna().unique().tolist()
                 
@@ -118,12 +107,11 @@ def main():
                     selected_contact = st.selectbox("👤 Contact Person:", options=contact_options)
                     final_contact_info = filtered_contacts[filtered_contacts['Customer contact'] == selected_contact].iloc[0]
                 else:
-                    st.selectbox("👤 Chọn người liên hệ (Contact):", options=["Không có dữ liệu"], disabled=True)
+                    st.selectbox("👤 Contact Person:", options=["Không có dữ liệu"], disabled=True)
                     final_contact_info = None
 
-            # --- HÀNG 2: HIỂN THỊ THÔNG TIN MÃ KHÁCH, MST & LIÊN HỆ ---
+            # --- HÀNG 2: CUSTOMER NO, MST & LIÊN HỆ ---
             col_info_c1, col_info_c2, col_info_cont = st.columns([1, 1, 2])
-            
             with col_info_c1:
                 st.write(f"**Customer no:** {customer_no_key}")
             with col_info_c2:
@@ -134,7 +122,21 @@ def main():
                     e = final_contact_info.get('Email', '-')
                     st.success(f"📞 Phone: {p} | ✉️ Email: {e}")
 
-            # --- HÀNG 3: ĐỊA CHỈ ---
+            # --- HÀNG 3: MỚI - MACHINE NUMBER ---
+            # Truy xuất Machine number dựa trên Customer no
+            # Giả sử cột trong tab 'List of machines' tên là 'Customer no' và 'Machine number'
+            df_machines['Customer no'] = df_machines['Customer no'].apply(format_as_int_str)
+            filtered_machines = df_machines[df_machines['Customer no'] == customer_no_key]
+            machine_options = filtered_machines['Machine number'].dropna().unique().tolist()
+
+            col_mach1, col_mach2 = st.columns([1, 1])
+            with col_mach1:
+                if machine_options:
+                    selected_machine = st.selectbox("🛠️ Machine number:", options=machine_options)
+                else:
+                    st.selectbox("🛠️ Machine number:", options=["Không có dữ liệu"], disabled=True)
+
+            # --- HÀNG 4: ĐỊA CHỈ ---
             st.write(f"**Địa chỉ:**")
             st.text_area(label="Address", value=cust_info['Full Information customer'], height=80, label_visibility="collapsed")
 
