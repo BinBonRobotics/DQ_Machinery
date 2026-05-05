@@ -15,10 +15,8 @@ def load_all_data(url_link):
         df_mst = conn.read(spreadsheet=url_link, worksheet="Customer_MST", ttl=0)
         df_contact = conn.read(spreadsheet=url_link, worksheet="Customer_Contact", ttl=0)
         df_machines = conn.read(spreadsheet=url_link, worksheet="List of machines", ttl=0)
-        
         for df in [df_sp, df_mst, df_contact, df_machines]:
             df.columns = [c.replace('\n', ' ').strip() for c in df.columns]
-        
         return df_sp, df_mst, df_contact, df_machines
     except Exception as e:
         st.error(f"❌ Lỗi tải dữ liệu: {e}")
@@ -57,15 +55,25 @@ def tinh_toan_sp(df, ty_gia_moi):
 
 def main():
     st.set_page_config(page_title="D&Q Machinery", layout="wide")
+    
+    # CSS để xóa bỏ khoảng trống thừa giữa các thành phần
+    st.markdown("""
+        <style>
+        .stVerticalBlock { gap: 0rem; }
+        .stSelectbox { margin-bottom: -15px; }
+        div[data-testid="stVerticalBlock"] > div { margin-top: -5px; }
+        </style>
+    """, unsafe_allow_html=True)
+
     url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
 
     st.sidebar.title("⚙️ Cấu hình chung")
-    ty_gia_input = st.sidebar.number_input("Nhập Tỷ giá Euro mới (VND):", value=31000, step=100)
-    if st.sidebar.button("🔄 Làm mới toàn bộ dữ liệu", use_container_width=True):
+    ty_gia_input = st.sidebar.number_input("Tỷ giá Euro:", value=31000, step=100)
+    if st.sidebar.button("🔄 Làm mới dữ liệu", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
-    menu_selection = st.sidebar.radio("📂 Danh mục quản lý:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
+    menu_selection = st.sidebar.radio("📂 Danh mục:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
     df_sp_raw, df_mst, df_contact, df_machines = load_all_data(url)
 
@@ -73,58 +81,49 @@ def main():
         if menu_selection == "📄 Báo Giá Phụ Tùng":
             st.header("📝 Lập Báo Giá")
             
-            # --- HÀNG 1: LỰA CHỌN KHÁCH HÀNG & LIÊN HỆ ---
+            # --- HÀNG 1: CUSTOMER & CONTACT ---
             col_sel_cust, col_sel_cont = st.columns(2)
-            
             with col_sel_cust:
                 customer_list = sorted(df_mst['Customer name'].astype(str).unique().tolist())
                 selected_customer = st.selectbox("🎯 Customer name:", options=customer_list)
                 cust_info = df_mst[df_mst['Customer name'] == selected_customer].iloc[0]
-                customer_no_key = format_as_int_str(cust_info['Customer no'])
+                c_no = format_as_int_str(cust_info['Customer no'])
                 mst_val = format_as_int_str(cust_info['Mã số thuế'])
 
             with col_sel_cont:
                 df_contact['Customer no'] = df_contact['Customer no'].apply(format_as_int_str)
-                filtered_contacts = df_contact[df_contact['Customer no'] == customer_no_key]
-                contact_options = filtered_contacts['Customer contact'].dropna().unique().tolist()
-                
-                if contact_options:
-                    selected_contact = st.selectbox("👤 Contact Person:", options=contact_options)
-                    c_detail = filtered_contacts[filtered_contacts['Customer contact'] == selected_contact].iloc[0]
-                    # Dùng markdown để hiển thị phone/email nhỏ gọn, không dùng st.success để tránh chiếm diện tích lớn
-                    phone_val = c_detail.get('Phone', '-')
-                    email_val = c_detail.get('Email', '-')
-                    st.markdown(f"📞 `{phone_val}` | ✉️ `{email_val}`")
+                f_contacts = df_contact[df_contact['Customer no'] == c_no]
+                cont_options = f_contacts['Customer contact'].dropna().unique().tolist()
+                if cont_options:
+                    selected_contact = st.selectbox("👤 Contact Person:", options=cont_options)
+                    c_detail = f_contacts[f_contacts['Customer contact'] == selected_contact].iloc[0]
+                    # Hiển thị text bình thường để font chữ to và đẹp
+                    st.write(f"📞 {c_detail.get('Phone', '-')} | ✉️ {c_detail.get('Email', '-')}")
                 else:
                     st.selectbox("👤 Contact Person:", options=["Không có dữ liệu"], disabled=True)
-                    st.write("") # Giữ khoảng trống đồng nhất
+                    st.write("") 
 
-            # --- HÀNG 2: THÔNG TIN MÃ SỐ (ÉP SÁT LÊN TRÊN) ---
-            # Dùng 4 cột để các tiêu đề Customer no và MST nằm sát nhau và sát bên dưới ô chọn
-            c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-            with c1:
-                st.markdown(f"**Customer no:** {customer_no_key}")
-            with c2:
-                st.markdown(f"**Mã số thuế:** {mst_val}")
+            # --- HÀNG 2: THÔNG TIN MÃ (SÁT LÊN TRÊN) ---
+            st.markdown(f"**Customer no:** {c_no} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; **Mã số thuế:** {mst_val}")
 
             # --- HÀNG 3: MACHINE NUMBER ---
             df_machines['Customer no'] = df_machines['Customer no'].apply(format_as_int_str)
-            f_machines = df_machines[df_machines['Customer no'] == customer_no_key]
-            machine_options = f_machines['Customer Machine'].dropna().unique().tolist()
+            f_machines = df_machines[df_machines['Customer no'] == c_no]
+            m_options = f_machines['Customer Machine'].dropna().unique().tolist()
 
-            col_mach, col_empty = st.columns([1, 1])
+            col_mach, _ = st.columns([1, 1])
             with col_mach:
-                if machine_options:
-                    selected_machine = st.selectbox("🛠️ Machine number:", options=machine_options)
+                if m_options:
+                    st.selectbox("🛠️ Machine number:", options=m_options)
                 else:
                     st.selectbox("🛠️ Machine number:", options=["Không có dữ liệu"], disabled=True)
 
             # --- HÀNG 4: ĐỊA CHỈ ---
             st.markdown("**Địa chỉ:**")
-            st.caption(cust_info['Full Information customer'])
+            st.write(cust_info['Full Information customer'])
 
             st.divider()
-            st.info("💡 Thông tin phụ tùng sẽ hiển thị bên dưới đường gạch này.")
+            st.info("💡 Thông tin phụ tùng sẽ hiển thị bên dưới.")
 
         elif menu_selection == "🗂️ Master Data":
             st.header("🗂️ Master Data")
