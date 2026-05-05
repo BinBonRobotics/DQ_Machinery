@@ -28,14 +28,12 @@ def roundup_to_10k(x):
     return math.ceil(x / 10000) * 10000
 
 def format_as_int_str(val):
-    """Chuyển đổi số sang số nguyên chuỗi sạch sẽ"""
+    """Định dạng số nguyên sạch sẽ cho Customer no và MST"""
     if pd.isna(val) or str(val).strip() in ['-', '']: return ""
     try:
-        # Xử lý trường hợp số bị lưu dạng float (123.0) hoặc string có dấu phẩy
-        num_clean = str(val).replace(',', '').strip()
-        return str(int(float(num_clean)))
+        return str(int(float(str(val).replace(',', '').strip())))
     except:
-        return str(val)
+        return str(val).strip()
 
 def format_number_with_comma(val):
     if pd.isna(val) or str(val).strip() in ['-', '']: return "-"
@@ -93,54 +91,54 @@ def main():
         if menu_selection == "📄 Báo Giá Phụ Tùng":
             st.header("📝 Lập Báo Giá")
             
-            # --- HÀNG 1: CHỌN KHÁCH HÀNG & NGƯỜI LIÊN HỆ ---
+            # --- Xử lý dữ liệu ban đầu ---
+            df_mst['Customer name'] = df_mst['Customer name'].astype(str).str.strip()
+            customer_list = sorted(df_mst['Customer name'].unique().tolist())
+
+            # --- HÀNG 1: DROP MENU CHỌN KHÁCH HÀNG & NGƯỜI LIÊN HỆ ---
             col_sel_cust, col_sel_cont = st.columns(2)
             
             with col_sel_cust:
-                df_mst['Customer name'] = df_mst['Customer name'].astype(str).str.strip()
-                customer_list = sorted(df_mst['Customer name'].unique().tolist())
                 selected_customer = st.selectbox("🎯 Chọn tên khách hàng (Customer name):", options=customer_list)
-                
-                # Lấy thông tin cơ bản
                 cust_info = df_mst[df_mst['Customer name'] == selected_customer].iloc[0]
-                customer_no_val = format_as_int_str(cust_info['Customer no'])
+                # Lấy Customer no làm khóa tham chiếu (đã xử lý số nguyên)
+                customer_no_key = format_as_int_str(cust_info['Customer no'])
                 mst_val = format_as_int_str(cust_info['Mã số thuế'])
 
             with col_sel_cont:
-                # Lọc danh sách người liên hệ dựa trên Customer no
-                df_contact['Customer no'] = df_contact['Customer no'].astype(str).str.strip()
-                # Đồng bộ format mã khách để lọc chính xác
-                current_cust_no = str(cust_info['Customer no']).split('.')[0].strip()
-                contacts = df_contact[df_contact['Customer no'] == current_cust_no]
+                # TRUY XUẤT NGƯỜI LIÊN HỆ DỰA TRÊN CUSTOMER NO
+                # Ép kiểu Customer no trong tab Contact về chuỗi sạch để so khớp
+                df_contact['Customer no'] = df_contact['Customer no'].apply(format_as_int_str)
                 
-                contact_list = contacts['Customer contact'].dropna().unique().tolist()
+                # Lọc danh sách người liên hệ thuộc Customer no này
+                filtered_contacts = df_contact[df_contact['Customer no'] == customer_no_key]
+                contact_options = filtered_contacts['Customer contact'].dropna().unique().tolist()
                 
-                if contact_list:
-                    selected_contact = st.selectbox("👤 Chọn người liên hệ (Contact):", options=contact_list)
-                    contact_detail = contacts[contacts['Customer contact'] == selected_contact].iloc[0]
+                if contact_options:
+                    selected_contact = st.selectbox("👤 Chọn người liên hệ (Contact):", options=contact_options)
+                    final_contact_info = filtered_contacts[filtered_contacts['Customer contact'] == selected_contact].iloc[0]
                 else:
                     st.selectbox("👤 Chọn người liên hệ (Contact):", options=["Không có dữ liệu"], disabled=True)
-                    contact_detail = None
+                    final_contact_info = None
 
-            # --- HÀNG 2: THÔNG TIN MÃ KHÁCH, MST & LIÊN HỆ ---
+            # --- HÀNG 2: HIỂN THỊ THÔNG TIN MÃ KHÁCH, MST & LIÊN HỆ ---
             col_info_c1, col_info_c2, col_info_cont = st.columns([1, 1, 2])
             
             with col_info_c1:
-                st.write(f"**Customer no:** {customer_no_val}")
+                st.write(f"**Customer no:** {customer_no_key}")
             with col_info_c2:
                 st.write(f"**Mã số thuế:** {mst_val}")
             with col_info_cont:
-                if contact_detail is not None:
-                    phone = contact_detail.get('Phone', '-')
-                    email = contact_detail.get('Email', '-')
-                    st.success(f"📞 Phone: {phone} | ✉️ Email: {email}")
+                if final_contact_info is not None:
+                    p = final_contact_info.get('Phone', '-')
+                    e = final_contact_info.get('Email', '-')
+                    st.success(f"📞 Phone: {p} | ✉️ Email: {e}")
 
             # --- HÀNG 3: ĐỊA CHỈ ---
             st.write(f"**Địa chỉ:**")
-            st.text_area(label="Full Address", value=cust_info['Full Information customer'], height=80, label_visibility="collapsed")
+            st.text_area(label="Address", value=cust_info['Full Information customer'], height=80, label_visibility="collapsed")
 
             st.divider()
-            # Khu vực dành cho phụ tùng tiếp theo
             st.info("💡 Thông tin phụ tùng sẽ hiển thị bên dưới đường gạch này.")
 
         elif menu_selection == "🗂️ Master Data":
