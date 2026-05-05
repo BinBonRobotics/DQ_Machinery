@@ -16,6 +16,7 @@ def load_all_data(url_link):
         df_contact = conn.read(spreadsheet=url_link, worksheet="Customer_Contact", ttl=0)
         df_machines = conn.read(spreadsheet=url_link, worksheet="List of machines", ttl=0)
         
+        # Làm sạch tên cột
         for df in [df_sp, df_mst, df_contact, df_machines]:
             df.columns = [c.replace('\n', ' ').strip() for c in df.columns]
         
@@ -24,16 +25,16 @@ def load_all_data(url_link):
         st.error(f"❌ Lỗi tải dữ liệu: {e}")
         return None, None, None, None
 
-def roundup_to_10k(x):
-    if x == 0: return 0
-    return math.ceil(x / 10000) * 10000
-
 def format_as_int_str(val):
     if pd.isna(val) or str(val).strip() in ['-', '']: return ""
     try:
         return str(int(float(str(val).replace(',', '').strip())))
     except:
         return str(val).strip()
+
+def roundup_to_10k(x):
+    if x == 0: return 0
+    return math.ceil(x / 10000) * 10000
 
 def format_number_with_comma(val):
     if pd.isna(val) or str(val).strip() in ['-', '']: return "-"
@@ -78,7 +79,6 @@ def main():
         st.cache_data.clear()
         st.rerun()
 
-    st.sidebar.markdown("---")
     menu_selection = st.sidebar.radio("📂 Danh mục quản lý:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
     df_sp_raw, df_mst, df_contact, df_machines = load_all_data(url)
@@ -87,12 +87,10 @@ def main():
         if menu_selection == "📄 Báo Giá Phụ Tùng":
             st.header("📝 Lập Báo Giá")
             
-            # --- HÀNG 1: DROP MENU CHỌN KHÁCH HÀNG & NGƯỜI LIÊN HỆ ---
+            # --- HÀNG 1: CUSTOMER & CONTACT ---
             col_sel_cust, col_sel_cont = st.columns(2)
-            
             with col_sel_cust:
-                df_mst['Customer name'] = df_mst['Customer name'].astype(str).str.strip()
-                customer_list = sorted(df_mst['Customer name'].unique().tolist())
+                customer_list = sorted(df_mst['Customer name'].astype(str).unique().tolist())
                 selected_customer = st.selectbox("🎯 Customer name:", options=customer_list)
                 cust_info = df_mst[df_mst['Customer name'] == selected_customer].iloc[0]
                 customer_no_key = format_as_int_str(cust_info['Customer no'])
@@ -102,32 +100,24 @@ def main():
                 df_contact['Customer no'] = df_contact['Customer no'].apply(format_as_int_str)
                 filtered_contacts = df_contact[df_contact['Customer no'] == customer_no_key]
                 contact_options = filtered_contacts['Customer contact'].dropna().unique().tolist()
-                
                 if contact_options:
                     selected_contact = st.selectbox("👤 Contact Person:", options=contact_options)
-                    final_contact_info = filtered_contacts[filtered_contacts['Customer contact'] == selected_contact].iloc[0]
+                    c_detail = filtered_contacts[filtered_contacts['Customer contact'] == selected_contact].iloc[0]
+                    st.success(f"📞 {c_detail.get('Phone', '-')} | ✉️ {c_detail.get('Email', '-')}")
                 else:
                     st.selectbox("👤 Contact Person:", options=["Không có dữ liệu"], disabled=True)
-                    final_contact_info = None
 
-            # --- HÀNG 2: CUSTOMER NO, MST & LIÊN HỆ ---
-            col_info_c1, col_info_c2, col_info_cont = st.columns([1, 1, 2])
-            with col_info_c1:
-                st.write(f"**Customer no:** {customer_no_key}")
-            with col_info_c2:
-                st.write(f"**Mã số thuế:** {mst_val}")
-            with col_info_cont:
-                if final_contact_info is not None:
-                    p = final_contact_info.get('Phone', '-')
-                    e = final_contact_info.get('Email', '-')
-                    st.success(f"📞 Phone: {p} | ✉️ Email: {e}")
+            # --- HÀNG 2: CUSTOMER NO & MST ---
+            col_no, col_mst, col_empty = st.columns([1, 1, 2])
+            with col_no: st.write(f"**Customer no:** {customer_no_key}")
+            with col_mst: st.write(f"**Mã số thuế:** {mst_val}")
 
-            # --- HÀNG 3: MỚI - MACHINE NUMBER ---
-            # Truy xuất Machine number dựa trên Customer no
-            # Giả sử cột trong tab 'List of machines' tên là 'Customer no' và 'Machine number'
+            # --- HÀNG 3: MACHINE NUMBER (LẤY TỪ CỘT CUSTOMER MACHINE) ---
             df_machines['Customer no'] = df_machines['Customer no'].apply(format_as_int_str)
-            filtered_machines = df_machines[df_machines['Customer no'] == customer_no_key]
-            machine_options = filtered_machines['Machine number'].dropna().unique().tolist()
+            f_machines = df_machines[df_machines['Customer no'] == customer_no_key]
+            
+            # Chỉ lấy cột "Customer Machine" như bạn yêu cầu
+            machine_options = f_machines['Customer Machine'].dropna().unique().tolist()
 
             col_mach1, col_mach2 = st.columns([1, 1])
             with col_mach1:
@@ -138,21 +128,15 @@ def main():
 
             # --- HÀNG 4: ĐỊA CHỈ ---
             st.write(f"**Địa chỉ:**")
-            st.text_area(label="Address", value=cust_info['Full Information customer'], height=80, label_visibility="collapsed")
+            st.text_area("Addr", value=cust_info['Full Information customer'], height=70, label_visibility="collapsed")
 
             st.divider()
             st.info("💡 Thông tin phụ tùng sẽ hiển thị bên dưới đường gạch này.")
 
         elif menu_selection == "🗂️ Master Data":
-            st.header("🗂️ Master Data - Phụ tùng")
+            st.header("🗂️ Master Data")
             df_final_sp = tinh_toan_sp(df_sp_raw, ty_gia_input)
-            search_query = st.text_input("Tìm nhanh Part number:")
-            if search_query:
-                list_ma = [s.strip() for s in search_query.split(';') if s.strip()]
-                result = df_final_sp[df_final_sp['Part number'].astype(str).isin(list_ma)]
-                st.dataframe(result, use_container_width=True, hide_index=True)
-            else:
-                st.dataframe(df_final_sp, use_container_width=True, hide_index=True)
+            st.dataframe(df_final_sp, use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
