@@ -99,7 +99,7 @@ def main():
             col_sel_cust, col_sel_cont = st.columns(2)
             
             with col_sel_cust:
-                selected_customer = st.selectbox("🎯 Chọn tên khách hàng (Customer name):", options=customer_list)
+                selected_customer = st.selectbox("🎯 Customer name:", options=customer_list)
                 cust_info = df_mst[df_mst['Customer name'] == selected_customer].iloc[0]
                 # Lấy Customer no làm khóa tham chiếu (đã xử lý số nguyên)
                 customer_no_key = format_as_int_str(cust_info['Customer no'])
@@ -115,7 +115,7 @@ def main():
                 contact_options = filtered_contacts['Customer contact'].dropna().unique().tolist()
                 
                 if contact_options:
-                    selected_contact = st.selectbox("👤 Chọn người liên hệ (Contact):", options=contact_options)
+                    selected_contact = st.selectbox("👤 Contact Person:", options=contact_options)
                     final_contact_info = filtered_contacts[filtered_contacts['Customer contact'] == selected_contact].iloc[0]
                 else:
                     st.selectbox("👤 Chọn người liên hệ (Contact):", options=["Không có dữ liệu"], disabled=True)
