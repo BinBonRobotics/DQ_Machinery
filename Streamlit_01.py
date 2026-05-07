@@ -19,7 +19,6 @@ def load_all_data(url_link):
         
         for df in [df_sp, df_mst, df_contact, df_machines, df_staff]:
             df.columns = [c.replace('\n', ' ').strip() for c in df.columns]
-        
         return df_sp, df_mst, df_contact, df_machines, df_staff
     except Exception as e:
         st.error(f"❌ Lỗi tải dữ liệu: {e}")
@@ -27,33 +26,8 @@ def load_all_data(url_link):
 
 def format_as_int_str(val):
     if pd.isna(val) or str(val).strip() in ['-', '']: return ""
-    try:
-        return str(int(float(str(val).replace(',', '').strip())))
-    except:
-        return str(val).strip()
-
-def roundup_to_10k(x):
-    if x == 0: return 0
-    return math.ceil(x / 10000) * 10000
-
-def tinh_toan_sp(df, ty_gia_moi):
-    df_calc = df.copy()
-    def clean_num(x):
-        if pd.isna(x) or str(x).strip() in ['-', '']: return 0
-        return pd.to_numeric(str(x).replace(',', '').strip(), errors='coerce') or 0
-    
-    # Giả định tên cột chính xác từ GSheet của bạn
-    gia_net_euro = df_calc['Giá Net Euro'].apply(clean_num) if 'Giá Net Euro' in df_calc.columns else df_calc.iloc[:, 15].apply(clean_num)
-    he_so = df_calc['Hệ số'].apply(clean_num) if 'Hệ số' in df_calc.columns else df_calc.iloc[:, 17].apply(clean_num)
-    
-    net_vnd = (gia_net_euro * ty_gia_moi).apply(roundup_to_10k)
-    gia_ban = (net_vnd * he_so).apply(roundup_to_10k)
-    
-    df_calc['Giá Net VND'] = net_vnd.apply(lambda x: f"{int(x):,}" if x != 0 else "-")
-    df_calc['Giá bán'] = gia_ban.apply(lambda x: f"{int(x):,}" if x != 0 else "-")
-    df_calc['Profit'] = (gia_ban - net_vnd).apply(lambda x: f"{int(x):,}" if x != 0 else "-")
-    df_calc['Margin'] = ((gia_ban - net_vnd) / gia_ban).fillna(0).apply(lambda x: f"{x:.0%}")
-    return df_calc
+    try: return str(int(float(str(val).replace(',', '').strip())))
+    except: return str(val).strip()
 
 # ==========================================
 # 2. CHƯƠNG TRÌNH CHÍNH (MAIN)
@@ -62,113 +36,119 @@ def tinh_toan_sp(df, ty_gia_moi):
 def main():
     st.set_page_config(page_title="D&Q Machinery", layout="wide")
     
-    # Khởi tạo trạng thái nút bấm nếu chưa có
-    if 'sub_action' not in st.session_state:
-        st.session_state.sub_action = None
-
-    st.markdown("""
-        <style>
-        .stVerticalBlock { gap: 0.5rem; }
-        .stSelectbox { margin-bottom: 0px; }
-        div[data-testid="stMarkdownContainer"] p { margin-bottom: 5px; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
-
-    # SIDEBAR
-    st.sidebar.title("⚙️ Cấu hình")
+    # SIDEBAR LUÔN HIỂN THỊ
+    st.sidebar.title("⚙️ HỆ THỐNG D&Q")
+    menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
+    st.sidebar.divider()
     ty_gia_input = st.sidebar.number_input("Tỷ giá Euro:", value=31000, step=100)
+    
     if st.sidebar.button("🔄 Làm mới dữ liệu", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
-    menu_selection = st.sidebar.radio("📂 Danh mục:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
+    if 'cart' not in st.session_state: st.session_state.cart = []
+    if 'sub_action' not in st.session_state: st.session_state.sub_action = None
 
-    # Load data
+    url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
     df_sp_raw, df_mst, df_contact, df_machines, df_staff = load_all_data(url)
 
     if df_sp_raw is not None:
-        # --- TAB 1: BÁO GIÁ PHỤ TÙNG ---
         if menu_selection == "📄 Báo Giá Phụ Tùng":
-            # Tạo các nút bấm hàng ngang như menu con
             col_btn1, col_btn2, col_btn3, col_btn4, col_btn5 = st.columns(5)
-            
             with col_btn1:
-                if st.button("➕ Tạo Báo Giá", use_container_width=True):
-                    st.session_state.sub_action = "create"
+                if st.button("➕ Tạo Báo Giá", use_container_width=True): st.session_state.sub_action = "create"
             with col_btn2:
-                if st.button("🔍 Tra Cứu Đơn Hàng", use_container_width=True):
-                    st.session_state.sub_action = "search"
-            with col_btn3:
-                st.button("Button 3", use_container_width=True, disabled=True)
-            with col_btn4:
-                st.button("Button 4", use_container_width=True, disabled=True)
-            with col_btn5:
-                st.button("Button 5", use_container_width=True, disabled=True)
+                if st.button("🔍 Tra Cứu", use_container_width=True): st.session_state.sub_action = "search"
 
-            st.divider()
-
-            # Xử lý nội dung hiển thị sau khi nhấn nút
             if st.session_state.sub_action == "create":
-                st.subheader("📝 Lập Báo Giá")
+                st.divider()
                 
-                # --- PHẦN CODE LẬP BÁO GIÁ ĐÃ LÀM ---
+                # --- KHỐI THÔNG TIN KHÁCH HÀNG ---
                 col1, col2 = st.columns(2)
+                
                 with col1:
-                    customer_list = sorted(df_mst['Customer name'].astype(str).unique().tolist())
-                    selected_customer = st.selectbox("🎯 Customer name:", options=customer_list)
+                    customer_list = sorted(df_mst['Customer name'].unique())
+                    selected_customer = st.selectbox("🎯 Chọn khách hàng:", options=customer_list)
                     cust_info = df_mst[df_mst['Customer name'] == selected_customer].iloc[0]
                     c_no = format_as_int_str(cust_info['Customer no'])
                     mst_val = format_as_int_str(cust_info['Mã số thuế'])
-                    st.markdown(f"**Customer no:** {c_no} &nbsp;&nbsp; | &nbsp;&nbsp; **MST:** {mst_val}")
+                    # Hiển thị MST
+                    st.markdown(f"**Cust No:** {c_no} | **MST:** {mst_val}")
+                    
+                    # Machine number (Cùng hàng với Người lập báo giá)
+                    m_list = df_machines[df_machines['Customer no'].apply(format_as_int_str) == c_no]['Customer Machine'].tolist()
+                    st.selectbox("🛠️ Machine number:", options=m_list if m_list else ["N/A"])
 
                 with col2:
-                    df_contact['Customer no'] = df_contact['Customer no'].apply(format_as_int_str)
-                    f_contacts = df_contact[df_contact['Customer no'] == c_no]
+                    # Contact Person & Thông tin liên hệ
+                    df_contact['Customer no_str'] = df_contact['Customer no'].apply(format_as_int_str)
+                    f_contacts = df_contact[df_contact['Customer no_str'] == c_no]
                     cont_options = f_contacts['Customer contact'].dropna().unique().tolist()
-                    if cont_options:
-                        selected_contact = st.selectbox("👤 Contact Person:", options=cont_options)
+                    
+                    selected_contact = st.selectbox("👤 Contact Person:", options=cont_options if cont_options else ["N/A"])
+                    
+                    # HIỂN THỊ SỐ ĐIỆN THOẠI & EMAIL (ĐÃ FIX)
+                    if cont_options and selected_contact != "N/A":
                         c_detail = f_contacts[f_contacts['Customer contact'] == selected_contact].iloc[0]
-                        st.write(f"📞 {c_detail.get('Phone', '-')} | ✉️ {c_detail.get('Email', '-')}")
+                        st.markdown(f"📞 {c_detail.get('Phone', '-')} | ✉️ {c_detail.get('Email', '-')}")
                     else:
-                        st.selectbox("👤 Contact Person:", options=["Không có dữ liệu"], disabled=True)
+                        st.write("📞 - | ✉️ -")
+                    
+                    # Người lập báo giá (Thẳng hàng với Machine Number)
+                    staff_list = df_staff['Name'].tolist() if df_staff is not None else ["Admin"]
+                    st.selectbox("✍️ Người lập báo giá:", options=staff_list)
 
-                st.markdown("---")
-                col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    df_machines['Customer no'] = df_machines['Customer no'].apply(format_as_int_str)
-                    f_machines = df_machines[df_machines['Customer no'] == c_no]
-                    m_options = f_machines['Customer Machine'].dropna().unique().tolist()
-                    if m_options:
-                        st.selectbox("🛠️ Machine number:", options=m_options)
-                    else:
-                        st.selectbox("🛠️ Machine number:", options=["Không có dữ liệu"], disabled=True)
-                with col_m2:
-                    if df_staff is not None and 'Name' in df_staff.columns:
-                        staff_list = df_staff['Name'].dropna().unique().tolist()
-                        st.selectbox("✍️ Người lập báo giá:", options=staff_list)
+                st.markdown(f'<div style="margin-top:10px; padding:12px; background-color:#f8f9fa; border-left:5px solid #ff4b4b;"><b>📍 Địa chỉ:</b> {cust_info["Full Information customer"]}</div>', unsafe_allow_html=True)
+                st.divider()
 
-                st.markdown("**📍 Địa chỉ:**")
-                st.info(cust_info['Full Information customer'])
+                # --- TÌM KIẾM PHỤ TÙNG (FIX LỖI KHÔNG TÌM THẤY) ---
+                st.subheader("🔍 Tìm Part Number")
+                col_search, col_add = st.columns([4, 1])
+                with col_search:
+                    part_search = st.text_input("Nhập mã phụ tùng:", key="ps_input", placeholder="Ví dụ: 3608080970...")
                 
-                # NÚT CHỨC NĂNG CUỐI TRANG
-                col_save, col_order, _ = st.columns([1, 1, 3])
-                with col_save:
-                    st.button("💾 Lưu Báo Giá", use_container_width=True, type="primary")
-                with col_order:
-                    st.button("🛒 Đặt Hàng", use_container_width=True)
+                if part_search:
+                    search_str = str(part_search).strip().upper()
+                    # Chuẩn hóa cột Part number trong DB
+                    df_sp_raw['PN_MATCH'] = df_sp_raw['Part number'].astype(str).str.strip().str.upper()
+                    match = df_sp_raw[df_sp_raw['PN_MATCH'] == search_str]
+                    
+                    if not match.empty:
+                        item = match.iloc[0]
+                        with col_add:
+                            st.write("##")
+                            if st.button("➕ Thêm", use_container_width=True, type="primary"):
+                                st.session_state.cart.append({
+                                    "Part Number": item['Part number'],
+                                    "Part name": item['Part name'],
+                                    "Qty": 1,
+                                    "Unit": item['Unit'],
+                                    "VAT": item['VAT'],
+                                    "Unit Price": item['Giá bán']
+                                })
+                                st.toast(f"Đã thêm {search_str}")
+                    else:
+                        st.error(f"❌ Không tìm thấy mã '{search_str}'. Vui lòng kiểm tra lại tab SP List.")
 
-            elif st.session_state.sub_action == "search":
-                st.subheader("🔍 Tra Cứu Đơn Hàng")
-                st.info("Tính năng đang được phát triển...")
+                # --- BẢNG DANH SÁCH ---
+                st.markdown("### 📋 Danh sách phụ tùng")
+                if st.session_state.cart:
+                    df_cart = pd.DataFrame(st.session_state.cart)
+                    df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
+                    st.data_editor(df_cart, use_container_width=True, hide_index=True, key="editor")
+                    if st.button("🗑️ Xoá bảng"):
+                        st.session_state.cart = []
+                        st.rerun()
 
-        # --- TAB 2: MASTER DATA ---
+                # Nút điều khiển
+                st.markdown("<br>" * 10, unsafe_allow_html=True)
+                cs1, cs2, _ = st.columns([1.5, 1.5, 5])
+                cs1.button("💾 Lưu Báo Giá", use_container_width=True)
+                cs2.button("🛒 Đặt Hàng", use_container_width=True)
+
         elif menu_selection == "🗂️ Master Data":
-            st.session_state.sub_action = None # Reset sub-action khi chuyển tab lớn
-            st.header("🗂️ Master Data")
-            df_final = tinh_toan_sp(df_sp_raw, ty_gia_input)
-            st.dataframe(df_final, use_container_width=True, hide_index=True)
+            st.header("🗂️ Dữ liệu Master Data")
+            st.dataframe(df_sp_raw, use_container_width=True)
 
 if __name__ == "__main__":
     main()
