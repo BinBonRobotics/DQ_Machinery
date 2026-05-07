@@ -37,7 +37,7 @@ def to_pure_number_str(val):
 def main():
     st.set_page_config(page_title="D&Q Machinery", layout="wide")
     
-    # SIDEBAR (Giữ nguyên Tỷ giá & Làm mới)
+    # SIDEBAR
     st.sidebar.title("⚙️ HỆ THỐNG D&Q")
     menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
     st.sidebar.divider()
@@ -87,11 +87,11 @@ def main():
                 st.markdown(f"> **📍 Địa chỉ:** {row_mst['Full Information customer']}")
                 st.divider()
 
-                # --- TÌM KIẾM ĐA MÃ (Thẳng hàng & Ổn định) ---
+                # --- TÌM KIẾM ĐA MÃ ---
                 st.subheader("🔍 Tìm Part Number")
                 search_col, btn_col = st.columns([4, 1])
                 with search_col:
-                    input_search = st.text_input("Search Input", placeholder="Nhập mã cách nhau bởi dấu ; (Ví dụ: 4007010482;4007010183)", label_visibility="collapsed")
+                    input_search = st.text_input("Search", placeholder="Nhập mã cách nhau bởi dấu ;", label_visibility="collapsed")
                 with btn_col:
                     add_btn = st.button("🛒 Thêm vào giỏ hàng", use_container_width=True, type="primary")
 
@@ -100,17 +100,12 @@ def main():
                     df_sp_raw['CODE_CLEAN'] = df_sp_raw['Part number'].apply(to_pure_number_str)
                     
                     found_any = False
-                    missing_codes = []
-
                     for code in codes_to_find:
                         match = df_sp_raw[df_sp_raw['CODE_CLEAN'] == code]
                         if not match.empty:
                             item = match.iloc[0]
                             vat_val = item['VAT']
-                            try:
-                                vat_display = f"{int(float(vat_val)*100)}%" if pd.notna(vat_val) else "0%"
-                            except:
-                                vat_display = "0%"
+                            vat_display = f"{int(float(vat_val)*100)}%" if pd.notna(vat_val) else "0%"
                                 
                             st.session_state.cart.append({
                                 "Part Number": item['Part number'],
@@ -121,13 +116,9 @@ def main():
                                 "Unit Price": float(item['Giá bán']) if pd.notna(item['Giá bán']) else 0.0
                             })
                             found_any = True
-                        else:
-                            missing_codes.append(code)
-
                     if found_any: st.toast("✅ Đã thêm thành công!")
-                    if missing_codes: st.warning(f"⚠️ Không tìm thấy: {', '.join(missing_codes)}")
 
-                # --- BẢNG GIỎ HÀNG (CẬP NHẬT ĐỊNH DẠNG DẤU PHẨY) ---
+                # --- BẢNG GIỎ HÀNG (FIXED FORMAT DẤU PHẨY) ---
                 if st.session_state.cart:
                     st.markdown("### 📋 Danh sách đã chọn")
                     df_cart = pd.DataFrame(st.session_state.cart)
@@ -137,24 +128,22 @@ def main():
                         df_cart,
                         column_config={
                             "No": st.column_config.NumberColumn("No", width="small"),
-                            # Cấu hình hiển thị dấu phẩy ngăn cách hàng nghìn cho Unit Price
                             "Unit Price": st.column_config.NumberColumn(
                                 "Unit Price", 
-                                format="%d", # Hiển thị số nguyên với dấu phẩy tự động theo locale
-                                width="medium"
+                                format="%,d", # LỆNH QUAN TRỌNG: Dấu phẩy ngăn cách hàng nghìn
                             ),
                             "VAT": st.column_config.TextColumn("VAT", width="small"),
                             "Qty": st.column_config.NumberColumn("Qty", min_value=1),
                         },
                         use_container_width=True,
                         hide_index=True,
-                        key="cart_editor_final_v4"
+                        key="cart_editor_v5"
                     )
                     if st.button("🗑️ Xóa hết bảng"):
                         st.session_state.cart = []
                         st.rerun()
 
-                st.markdown("<br>" * 5, unsafe_allow_html=True)
+                st.markdown("<br>" * 2, unsafe_allow_html=True)
                 cs1, cs2, _ = st.columns([1.5, 1.5, 5])
                 cs1.button("💾 Lưu Báo Giá", use_container_width=True)
                 cs2.button("🛒 Đặt Hàng", use_container_width=True)
