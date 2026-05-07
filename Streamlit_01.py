@@ -17,19 +17,19 @@ def load_all_data(url_link):
         df_machines = conn.read(spreadsheet=url_link, worksheet="List of machines", ttl=0)
         df_staff = conn.read(spreadsheet=url_link, worksheet="Staff", ttl=0)
         
-        # Làm sạch tên cột (bỏ xuống dòng)
         for df in [df_sp, df_mst, df_contact, df_machines, df_staff]:
             df.columns = [c.replace('\n', ' ').strip() for c in df.columns]
         return df_sp, df_mst, df_contact, df_machines, df_staff
     except Exception as e:
-        st.error(f"❌ Lỗi tải dữ liệu: {e}")
+        st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
         return None, None, None, None, None
 
 def to_pure_number_str(val):
-    """Biến mọi giá trị (số/chuỗi/dấu chấm) thành chuỗi số nguyên duy nhất"""
-    if pd.isna(val): return ""
+    """Biến mọi giá trị thành chuỗi số nguyên tinh khiết để so sánh"""
+    if pd.isna(val) or val == "": return ""
     s = str(val).strip()
-    if s.endswith('.0'): s = s[:-2] # Bỏ đuôi .0 của số float
+    if s.endswith('.0'): s = s[:-2]
+    # Chỉ giữ lại chữ và số, loại bỏ hoàn toàn dấu chấm, phẩy, cách
     return re.sub(r'[^a-zA-Z0-9]', '', s).upper()
 
 # ==========================================
@@ -39,12 +39,17 @@ def to_pure_number_str(val):
 def main():
     st.set_page_config(page_title="D&Q Machinery", layout="wide")
     
-    if 'cart' not in st.session_state: st.session_state.cart = []
-    if 'sub_action' not in st.session_state: st.session_state.sub_action = None
-
-    # SIDEBAR
+    # KHÔI PHỤC SIDEBAR (Tỷ giá & Làm mới)
     st.sidebar.title("⚙️ HỆ THỐNG D&Q")
     menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
+    st.sidebar.divider()
+    ty_gia = st.sidebar.number_input("Tỷ giá Euro (VND):", value=31000, step=100)
+    if st.sidebar.button("🔄 Làm mới dữ liệu", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+    if 'cart' not in st.session_state: st.session_state.cart = []
+    if 'sub_action' not in st.session_state: st.session_state.sub_action = None
 
     url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
     df_sp_raw, df_mst, df_contact, df_machines, df_staff = load_all_data(url)
@@ -61,7 +66,7 @@ def main():
             if st.session_state.sub_action == "create":
                 st.divider()
                 
-                # --- KHỐI THÔNG TIN KHÁCH HÀNG ---
+                # --- THÔNG TIN KHÁCH HÀNG ---
                 c1, c2 = st.columns(2)
                 with c1:
                     cust_name = st.selectbox("🎯 Khách hàng:", options=sorted(df_mst['Customer name'].unique()))
@@ -69,67 +74,71 @@ def main():
                     c_no = to_pure_number_str(row_mst['Customer no'])
                     st.info(f"**Cust No:** {c_no} | **MST:** {row_mst['Mã số thuế']}")
                     
-                    # Machine Number (Thẳng hàng ngang với Người lập)
                     m_list = df_machines[df_machines['Customer no'].astype(str).str.contains(c_no)]['Customer Machine'].tolist()
                     st.selectbox("🛠️ Machine number:", options=m_list if m_list else ["N/A"])
 
                 with c2:
-                    # Contact & Thông tin liên hệ (Dưới contact là Phone/Email)
                     f_conts = df_contact[df_contact['Customer no'].astype(str).str.contains(c_no)]
                     list_conts = f_conts['Customer contact'].dropna().unique().tolist()
                     selected_c = st.selectbox("👤 Contact Person:", options=list_conts if list_conts else ["N/A"])
-                    
                     if list_conts and selected_c != "N/A":
                         dt = f_conts[f_conts['Customer contact'] == selected_c].iloc[0]
                         st.write(f"📞 {dt.get('Phone','-')} | ✉️ {dt.get('Email','-')}")
                     else: st.write("📞 - | ✉️ -")
                     
-                    # Người lập (Nằm ngay dưới dòng Phone/Email để cân đối với Machine Number bên trái)
                     staff_list = df_staff['Name'].tolist() if df_staff is not None else ["Admin"]
                     st.selectbox("✍️ Người lập báo giá:", options=staff_list)
 
                 st.markdown(f"> **📍 Địa chỉ:** {row_mst['Full Information customer']}")
                 st.divider()
 
-                # --- TÌM KIẾM ĐA MÃ (FIX THẲNG HÀNG & SEARCH LỖI) ---
+                # --- TÌM KIẾM ĐA MÃ (FIX CĂN HÀNG & LỖI SEARCH) ---
                 st.subheader("🔍 Tìm Part Number")
-                
-                # Dùng columns để nút bấm và input nằm trên 1 hàng
                 search_col, btn_col = st.columns([4, 1])
                 
                 with search_col:
-                    # label_visibility="collapsed" giúp ô nhập liệu mất cái nhãn trống phía trên -> Thẳng hàng với nút bấm
-                    input_search = st.text_input("Search", placeholder="Dán dãy mã cách nhau bởi dấu ; vào đây...", label_visibility="collapsed")
+                    input_search = st.text_input("Search Input", placeholder="Nhập mã cách nhau bởi dấu ; (Ví dụ: 4007010482;4007010183)", label_visibility="collapsed")
                 
                 with btn_col:
                     add_btn = st.button("🛒 Thêm vào giỏ hàng", use_container_width=True, type="primary")
 
                 if add_btn and input_search:
-                    # 1. Tách danh sách mã từ chuỗi nhập vào
+                    # Tách danh sách mã và làm sạch từng mã một
                     codes_to_find = [to_pure_number_str(c) for c in input_search.split(';') if c.strip()]
                     
-                    # 2. Tạo cột tạm để so sánh (đã làm sạch hết dấu chấm/phẩy trong database)
+                    # Tạo bản sao dữ liệu sạch để tìm kiếm
                     df_sp_raw['CODE_CLEAN'] = df_sp_raw['Part number'].apply(to_pure_number_str)
                     
-                    found_items = df_sp_raw[df_sp_raw['CODE_CLEAN'].isin(codes_to_find)]
-                    
-                    if not found_items.empty:
-                        for _, item in found_items.iterrows():
-                            # Format VAT sang %
-                            v_raw = item['VAT']
-                            v_display = f"{int(float(v_raw)*100)}%" if pd.notna(v_raw) else "0%"
-                            
+                    found_any = False
+                    missing_codes = []
+
+                    for code in codes_to_find:
+                        match = df_sp_raw[df_sp_raw['CODE_CLEAN'] == code]
+                        if not match.empty:
+                            item = match.iloc[0]
+                            # Định dạng VAT hiển thị
+                            vat_val = item['VAT']
+                            try:
+                                vat_display = f"{int(float(vat_val)*100)}%" if pd.notna(vat_val) else "0%"
+                            except:
+                                vat_display = "0%"
+                                
                             st.session_state.cart.append({
                                 "Part Number": item['Part number'],
                                 "Part name": item['Part name'],
                                 "Qty": 1,
                                 "Unit": item['Unit'],
-                                "VAT": v_display,
+                                "VAT": vat_display,
                                 "Unit Price": float(item['Giá bán']) if pd.notna(item['Giá bán']) else 0
                             })
-                        st.toast(f"✅ Đã thêm {len(found_items)} mã vào giỏ hàng!")
-                    else:
-                        st.error("❌ Không tìm thấy mã nào. Hãy kiểm tra lại dãy mã vừa nhập.")
+                            found_any = True
+                        else:
+                            missing_codes.append(code)
+
+                    if found_any:
+                        st.toast(f"✅ Đã thêm các mã tìm thấy vào giỏ hàng!")
+                    if missing_codes:
+                        st.warning(f"⚠️ Không tìm thấy các mã: {', '.join(missing_codes)}")
 
                 # --- BẢNG GIỎ HÀNG ---
                 if st.session_state.cart:
@@ -145,9 +154,9 @@ def main():
                         },
                         use_container_width=True,
                         hide_index=True,
-                        key="editor_v3"
+                        key="cart_editor_final"
                     )
-                    if st.button("🗑️ Xóa hết"):
+                    if st.button("🗑️ Xóa hết bảng"):
                         st.session_state.cart = []
                         st.rerun()
 
