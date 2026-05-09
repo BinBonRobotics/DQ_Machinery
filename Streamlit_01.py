@@ -16,7 +16,6 @@ def load_all_data():
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
         
-        # Đọc 8 tab chính xác theo tên trên Google Sheets
         df_sp = conn.read(spreadsheet=url, worksheet="SP List")
         df_mst = conn.read(spreadsheet=url, worksheet="Customer_MST")
         df_con = conn.read(spreadsheet=url, worksheet="Customer_Contact")
@@ -41,9 +40,7 @@ def main():
     data = load_all_data()
     df_sp, df_mst, df_con, df_mac, df_staff, df_off_desc, df_off_head, df_off_track = data
 
-    if df_mst is None:
-        st.warning("⚠️ Đang chờ kết nối dữ liệu...")
-        return
+    if df_mst is None: return
 
     # Khởi tạo session state
     if 'cart' not in st.session_state: st.session_state.cart = []
@@ -58,7 +55,6 @@ def main():
         st.cache_data.clear()
         st.rerun()
     
-    st.sidebar.divider()
     menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
     if menu_selection == "📄 Báo Giá Phụ Tùng":
@@ -77,12 +73,10 @@ def main():
                 cust_options = sorted(df_mst['Customer name'].dropna().unique())
                 cust_name = st.selectbox("🎯 Khách hàng:", options=cust_options)
                 row_mst = df_mst[df_mst['Customer name'] == cust_name].iloc[0]
-                
                 c_no_val = row_mst.get('Customer no', row_mst.get('Customer\nno', ''))
                 c_no = str(c_no_val).split('.')[0] if pd.notna(c_no_val) else "N/A"
                 mst = str(row_mst.get('Mã số thuế', '-'))
                 st.info(f"**Cust No:** {c_no} | **MST:** {mst}")
-            
             with r1c2:
                 f_conts = df_con[df_con.iloc[:, 1].astype(str).str.contains(clean_code(c_no))] if df_con is not None else pd.DataFrame()
                 list_conts = f_conts.iloc[:, 7].dropna().unique().tolist() if not f_conts.empty else []
@@ -159,43 +153,43 @@ def main():
                     st.session_state.cart = new_cart
                     st.rerun()
 
-                # --- BẢNG TỔNG CỘNG (NHẬP TRỰC TIẾP SHIPMENT COST) ---
+                # --- BẢNG TỔNG CỘNG DUY NHẤT (UX THEO YÊU CẦU) ---
                 st.divider()
                 total_amt = df_cart['Amount'].sum()
-                
-                # Tạo một Dataframe nhỏ cho bảng tổng kết để có thể chỉnh sửa trực tiếp Shipment Cost
-                summary_data = [
+                sub_total = total_amt + st.session_state.ship_cost
+                vat_amount = sub_total * 0.08
+                grand_total = sub_total + vat_amount
+
+                # Tạo DataFrame bảng tổng kết 5 hàng
+                summary_df = pd.DataFrame([
                     {"Nội dung": "Total Amount", "Số tiền (VND)": total_amt},
                     {"Nội dung": "Shipment Cost", "Số tiền (VND)": st.session_state.ship_cost},
-                ]
-                df_summary = pd.DataFrame(summary_data)
-                
-                col_info, col_calc = st.columns([2, 1.5])
+                    {"Nội dung": "Sub-Total", "Số tiền (VND)": sub_total},
+                    {"Nội dung": "VAT (8%)", "Số tiền (VND)": vat_amount},
+                    {"Nội dung": "GRAND TOTAL", "Số tiền (VND)": grand_total}
+                ])
+
+                _, col_calc = st.columns([2, 1.5])
                 with col_calc:
-                    st.markdown("#### Tổng cộng báo giá")
+                    st.markdown("**Tổng kết báo giá**")
                     edited_summary = st.data_editor(
-                        df_summary,
+                        summary_df,
                         column_config={
                             "Nội dung": st.column_config.TextColumn("Nội dung", disabled=True),
                             "Số tiền (VND)": st.column_config.NumberColumn("Số tiền (VND)", format="%,d")
                         },
-                        hide_index=True, use_container_width=True, key="summary_editor"
+                        # Chỉ cho phép chỉnh sửa hàng Shipment Cost (hàng có index là 1)
+                        disabled=["Nội dung"], 
+                        hide_index=True, 
+                        use_container_width=True, 
+                        key="summary_editor"
                     )
-                    
-                    # Cập nhật ship_cost nếu người dùng gõ vào ô xanh
-                    new_ship_cost = edited_summary.iloc[1]["Số tiền (VND)"]
-                    if new_ship_cost != st.session_state.ship_cost:
-                        st.session_state.ship_cost = new_ship_cost
+
+                    # Kiểm tra nếu người dùng thay đổi Shipment Cost trong bảng
+                    new_ship = edited_summary.iloc[1]["Số tiền (VND)"]
+                    if new_ship != st.session_state.ship_cost:
+                        st.session_state.ship_cost = new_ship
                         st.rerun()
-
-                    sub_total = total_amt + st.session_state.ship_cost
-                    vat_amount = sub_total * 0.08
-                    grand_total = sub_total + vat_amount
-
-                    # Hiển thị kết quả cuối cùng sạch sẽ, không có ###
-                    st.write(f"**Sub-Total:** {sub_total:,.0f} VND")
-                    st.write(f"**VAT (8%):** {vat_amount:,.0f} VND")
-                    st.markdown(f"### **Grand Total: {grand_total:,.0f} VND**")
                 
                 st.button("💾 Lưu báo giá", use_container_width=True, type="primary")
 
@@ -203,10 +197,6 @@ def main():
             st.subheader("🔍 Order Management")
             t1, t2, t3 = st.tabs(["📄 Offers List", "🚚 Tracking", "📊 Reports"])
             with t1: st.dataframe(df_off_head, use_container_width=True)
-            with t2: st.dataframe(df_off_track, use_container_width=True)
-
-    elif menu_selection == "🗂️ Master Data":
-        st.dataframe(df_sp, use_container_width=True)
 
 if __name__ == "__main__":
     main()
