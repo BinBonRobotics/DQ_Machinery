@@ -26,7 +26,7 @@ def load_all_data(url):
 def main():
     st.set_page_config(page_title="D&Q Machinery", layout="wide")
     
-    url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
+    url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0 (giữ nguyên URL của bạn)"
     df_sp, df_mst, df_con, df_mac, df_staff = load_all_data(url)
 
     # Khởi tạo session state
@@ -46,14 +46,15 @@ def main():
     menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
     if menu_selection == "📄 Báo Giá Phụ Tùng":
-        col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+        col_btn1, col_btn2, _ = st.columns([1.5, 2, 3])
         if col_btn1.button("➕ Tạo Báo Giá", use_container_width=True, type="primary" if st.session_state.sub_action=="create" else "secondary"):
             st.session_state.sub_action = "create"
-        if col_btn2.button("🔍 Tra Cứu", use_container_width=True, type="primary" if st.session_state.sub_action=="search" else "secondary"):
+        if col_btn2.button("🔍 Order Management", use_container_width=True, type="primary" if st.session_state.sub_action=="search" else "secondary"):
             st.session_state.sub_action = "search"
         
         st.divider()
 
+        # --- GIAO DIỆN TẠO BÁO GIÁ ---
         if st.session_state.sub_action == "create":
             if df_mst is not None:
                 r1c1, r1c2 = st.columns(2)
@@ -133,24 +134,21 @@ def main():
                 df_cart_render = df_cart[display_cols].copy()
                 df_cart_render.insert(0, 'No', range(1, len(df_cart_render) + 1))
 
-                # --- CẬP NHẬT: PHÂN QUYỀN CHỈNH SỬA CỘT ---
                 edited_df = st.data_editor(
                     df_cart_render,
                     column_config={
                         "No": st.column_config.NumberColumn("No", width=35, disabled=True),
                         "Part Number": st.column_config.TextColumn("Part Number", disabled=True),
                         "Part name": st.column_config.TextColumn("Part name", disabled=True),
-                        "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1, disabled=False), # Cho phép sửa
+                        "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1),
                         "Unit": st.column_config.TextColumn("Unit", width=50, disabled=True),
                         "VAT": st.column_config.TextColumn("VAT", width=50, disabled=True),
                         "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d", disabled=True),
-                        "%Dist": st.column_config.NumberColumn("%Dist", width=60, min_value=0.0, max_value=100.0, disabled=False), # Cho phép sửa
+                        "%Dist": st.column_config.NumberColumn("%Dist", width=60, min_value=0.0, max_value=100.0),
                         "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
-                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50, disabled=False)
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50)
                     },
-                    use_container_width=True,
-                    hide_index=True,
-                    key="main_editor"
+                    use_container_width=True, hide_index=True, key="main_editor"
                 )
 
                 if not edited_df.equals(df_cart_render):
@@ -158,7 +156,6 @@ def main():
                     new_cart = []
                     for i in remaining_indices:
                         item = st.session_state.cart[i].copy()
-                        # Cập nhật giá trị mới từ bảng editor vào session state
                         item['Qty'] = edited_df.loc[i, 'Qty']
                         item['%Dist'] = edited_df.loc[i, '%Dist']
                         new_cart.append(item)
@@ -199,9 +196,35 @@ def main():
                     st.rerun()
 
                 st.write("")
-                b1, b2, _ = st.columns([1.5, 1.5, 4])
-                b1.button("💾 Lưu báo giá", use_container_width=True)
-                b2.button("✅ Xác nhận đặt hàng", use_container_width=True)
+                # CHỈ GIỮ LẠI NÚT LƯU BÁO GIÁ
+                st.button("💾 Lưu báo giá", use_container_width=True, type="primary")
+
+        # --- GIAO DIỆN ORDER MANAGEMENT ---
+        elif st.session_state.sub_action == "search":
+            tab_offers, tab_tracking, tab_report = st.tabs(["📄 Offers", "🚚 Order Tracking", "📊 SP Report"])
+            
+            with tab_offers:
+                st.subheader("Danh sách báo giá đã lưu")
+                st.info("💡 To Be Done: Hệ thống sẽ hiển thị danh sách báo giá từ tab 'Offer_Header' tại đây.")
+                # Ví dụ khung hiển thị
+                st.button("🔍 Tìm báo giá cũ")
+                st.button("✅ Xác nhận đặt hàng (Nút này sẽ nằm tại đây)")
+
+            with tab_tracking:
+                st.subheader("Theo dõi đơn hàng (Tracking)")
+                # Mô phỏng UX yêu cầu
+                st.write("Dữ liệu chỉ hiển thị các báo giá đã nhấn 'Xác nhận đặt hàng'")
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                col1.write("**Mã đơn hàng**")
+                col2.write("**Khách đã cọc?**")
+                col3.write("**Hàng đã về?**")
+                col4.write("**Đã giao hàng?**")
+                st.divider()
+                st.info("💡 To Be Done: Các checkbox sẽ được kết nối với tab 'Offer_Tracking'.")
+
+            with tab_report:
+                st.subheader("Báo cáo doanh thu & Hiệu suất")
+                st.warning("📊 To Be Done: Biểu đồ doanh thu quý, Top nhân viên và Top khách hàng sẽ được vẽ tại đây khi có dữ liệu.")
 
     elif menu_selection == "🗂️ Master Data":
         st.header("🗂️ Master Data")
