@@ -52,7 +52,7 @@ def main():
         st.divider()
 
         if st.session_state.sub_action == "create":
-            # --- THÔNG TIN KHÁCH HÀNG (LOGIC CHỐNG CRASH) ---
+            # --- THÔNG TIN KHÁCH HÀNG ---
             if df_mst is not None:
                 r1c1, r1c2 = st.columns(2)
                 with r1c1:
@@ -97,7 +97,7 @@ def main():
                             vat_display = f"{int(float(vat_raw)*100)}%" if pd.notna(vat_raw) else "8%"
                             
                             st.session_state.cart.append({
-                                "Xóa": False,
+                                "Xoá": False, # Cột Xoá quan trọng ở đây
                                 "Part Number": item.iloc[1],
                                 "Part name": item.iloc[4],
                                 "Qty": 1,
@@ -108,42 +108,41 @@ def main():
                             })
                     st.rerun()
 
-            # --- DANH SÁCH CHI TIẾT (TÍCH HỢP CỘT XÓA VÀO BẢNG) ---
+            # --- DANH SÁCH CHI TIẾT ---
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 
-                df_cart = pd.DataFrame(st.session_state.cart)
-                # Tính Amount
-                df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
-                # Đánh số No
-                if 'No' in df_cart.columns: df_cart = df_cart.drop(columns=['No'])
-                df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
+                df_display = pd.DataFrame(st.session_state.cart)
+                # Tính toán lại Amount cho hiển thị
+                df_display['Amount'] = df_display['Unit Price'] * df_display['Qty'] * (1 - df_display['%Dist']/100)
+                # Chèn cột No vào đầu
+                df_display.insert(0, 'No', range(1, len(df_display) + 1))
 
-                # Hiển thị bảng duy nhất
+                # Hiển thị bảng
+                # Dùng len(st.session_state.cart) trong key để Streamlit luôn vẽ lại bảng khi số lượng hàng thay đổi
                 edited_df = st.data_editor(
-                    df_cart,
+                    df_display,
                     column_config={
-                        "No": st.column_config.NumberColumn("No", width=35, disabled=True),
-                        "Xóa": st.column_config.CheckboxColumn("Xóa", width=40, help="Tích vào để xóa hàng này"),
+                        "No": st.column_config.NumberColumn("No", width=40, disabled=True),
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50, help="Tích vào để xoá dòng này"),
                         "Part Number": st.column_config.TextColumn("Part Number", disabled=True),
                         "Part name": st.column_config.TextColumn("Part name", disabled=True),
-                        "Qty": st.column_config.NumberColumn("Qty", width=50, min_value=1),
-                        "Unit": st.column_config.TextColumn("Unit", width=50, disabled=True),
-                        "VAT": st.column_config.TextColumn("VAT", width=50, disabled=True),
+                        "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1),
                         "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d"),
-                        "%Dist": st.column_config.NumberColumn("%Dist", width=60),
-                        "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True)
+                        "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
+                        "VAT": st.column_config.TextColumn("VAT", width=60, disabled=True),
+                        "Unit": st.column_config.TextColumn("Unit", width=60, disabled=True),
                     },
                     use_container_width=True,
                     hide_index=True,
-                    key="editor_final"
+                    key=f"editor_v{len(st.session_state.cart)}" 
                 )
 
-                # Xử lý logic xóa: Lọc bỏ những hàng có cột Xóa = True
-                if not edited_df.equals(df_cart):
-                    # Nếu có bất kỳ dòng nào được tích "Xóa", lọc bỏ nó đi
-                    new_cart = edited_df[edited_df["Xóa"] == False]
-                    # Bỏ các cột hiển thị tạm (No, Amount) trước khi lưu lại session
+                # KIỂM TRA XEM CÓ DÒNG NÀO ĐƯỢC TÍCH "XOÁ" KHÔNG
+                if not edited_df.equals(df_display):
+                    # 1. Lọc bỏ các dòng bị tích checkbox Xoá
+                    new_cart = edited_df[edited_df["Xoá"] == False]
+                    # 2. Loại bỏ các cột hiển thị tạm thời (No, Amount) trước khi lưu lại session_state
                     st.session_state.cart = new_cart.drop(columns=['No', 'Amount']).to_dict('records')
                     st.rerun()
 
@@ -151,7 +150,7 @@ def main():
                     st.session_state.cart = []
                     st.rerun()
 
-                # --- 2 NÚT XÁC NHẬN DƯỚI CÙNG (GIỮ NGUYÊN) ---
+                # --- 2 NÚT XÁC NHẬN DƯỚI CÙNG ---
                 st.write("")
                 b1, b2, _ = st.columns([1.5, 1.5, 4])
                 b1.button("💾 Lưu báo giá", use_container_width=True)
