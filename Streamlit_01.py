@@ -52,7 +52,7 @@ def main():
         st.divider()
 
         if st.session_state.sub_action == "create":
-            # --- THÔNG TIN KHÁCH HÀNG (LOGIC CHỐNG CRASH) ---
+            # --- THÔNG TIN KHÁCH HÀNG (CHỐNG CRASH) ---
             if df_mst is not None:
                 r1c1, r1c2 = st.columns(2)
                 with r1c1:
@@ -70,14 +70,6 @@ def main():
                     addr = row_mst.get('Địa chỉ', row_mst.get('Full Information customer', '-'))
                     st.write(f"📍 {str(addr)[:80]}...")
 
-                r2c1, r2c2 = st.columns(2)
-                with r2c1:
-                    m_list = df_mac[df_mac.iloc[:, 1].astype(str).str.contains(clean_code(c_no))].iloc[:, -1].tolist()
-                    st.selectbox("🛠️ Machine number:", options=m_list if m_list else ["N/A"])
-                with r2c2:
-                    staff_names = df_staff.iloc[:, 1].tolist() if df_staff is not None else ["Admin"]
-                    st.selectbox("✍️ Người lập báo giá:", options=staff_names)
-
             st.divider()
 
             # --- TÌM KIẾM ---
@@ -92,9 +84,16 @@ def main():
                         match = df_sp[df_sp['CLEAN_PN'] == code]
                         if not match.empty:
                             item = match.iloc[0]
+                            # Lấy giá trị Unit Price (Cột S - Index 18)
                             price = item.iloc[18] if len(item) > 18 else 0
-                            vat_raw = item.iloc[13] if len(item) > 13 else 0.08
-                            vat_display = f"{int(float(vat_raw)*100)}%" if pd.notna(vat_raw) else "8%"
+                            
+                            # LẤY VAT TỪ CỘT M (INDEX 12)
+                            vat_val = item.iloc[12] if len(item) > 12 else 0.08
+                            # Chuyển đổi định dạng VAT để hiển thị (ví dụ 0.08 -> 8%)
+                            try:
+                                vat_display = f"{int(float(vat_val)*100)}%" if pd.notna(vat_val) else "8%"
+                            except:
+                                vat_display = str(vat_val)
                             
                             st.session_state.cart.append({
                                 "Part Number": item.iloc[1],
@@ -113,9 +112,10 @@ def main():
                 st.markdown("### 📋 Danh sách chi tiết")
                 
                 df_cart = pd.DataFrame(st.session_state.cart)
+                # Tính toán Amount dựa trên giá thực tế và tỷ giá nếu cần (ở đây đang dùng Price gốc)
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
                 
-                # Sắp xếp lại thứ tự cột để Xoá ở cuối
+                # Sắp xếp thứ tự cột: Amount rồi đến Xoá
                 display_cols = ["Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Amount", "Xoá"]
                 df_cart = df_cart[display_cols]
                 df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
@@ -127,18 +127,21 @@ def main():
                         "Part Number": st.column_config.TextColumn("Part Number", disabled=True),
                         "Part name": st.column_config.TextColumn("Part name", disabled=True),
                         "Qty": st.column_config.NumberColumn("Qty", width=50, min_value=1),
+                        "Unit": st.column_config.TextColumn("Unit", width=50, disabled=True),
+                        "VAT": st.column_config.TextColumn("VAT", width=60, disabled=True),
                         "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d"),
                         "%Dist": st.column_config.NumberColumn("%Dist", width=60),
                         "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
-                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=60, help="Tích chọn để xoá")
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50)
                     },
                     use_container_width=True,
                     hide_index=True,
-                    key="editor_layout_v10" # Dùng key mới để ép trình duyệt nhận diện cột Xoá ở cuối
+                    key="editor_final_fix_v12"
                 )
 
                 if not edited_df.equals(df_cart):
                     new_cart_df = edited_df[edited_df['Xoá'] == False]
+                    # Lưu lại session, loại bỏ các cột tính toán No và Amount
                     st.session_state.cart = new_cart_df.drop(columns=['No', 'Amount']).to_dict('records')
                     st.rerun()
 
@@ -146,7 +149,7 @@ def main():
                     st.session_state.cart = []
                     st.rerun()
 
-                # --- 2 NÚT XÁC NHẬN ---
+                # --- 2 NÚT XÁC NHẬN CUỐI TRANG ---
                 st.write("")
                 b1, b2, _ = st.columns([1.5, 1.5, 4])
                 b1.button("💾 Lưu báo giá", use_container_width=True)
