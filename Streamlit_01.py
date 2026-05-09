@@ -57,9 +57,7 @@ def main():
                 cust_options = sorted(df_mst['Customer name'].dropna().unique())
                 cust_name = st.selectbox("🎯 Khách hàng:", options=cust_options)
                 row_mst = df_mst[df_mst['Customer name'] == cust_name].iloc[0]
-                
-                c_no_raw = row_mst.get('Customer no', row_mst.get('Customer\nno', ''))
-                c_no = str(c_no_raw).split('.')[0] if pd.notna(c_no_raw) else "N/A"
+                c_no = str(row_mst.get('Customer no', row_mst.get('Customer\nno', ''))).split('.')[0]
                 st.info(f"**Cust No:** {c_no} | **MST:** {row_mst.get('Mã số thuế', '-')}")
             
             with r1c2:
@@ -70,9 +68,8 @@ def main():
 
             r2c1, r2c2 = st.columns(2)
             with r2c1:
-                # --- SỬA THAM CHIẾU MACHINE NUMBER SANG CỘT O (Customer Machine) ---
+                # Machine Number tham chiếu cột O (Customer Machine)
                 f_macs = df_mac[df_mac.iloc[:, 1].astype(str).str.contains(clean_code(c_no))] if df_mac is not None else pd.DataFrame()
-                # Cột O là cột thứ 15 (index 14 trong Python)
                 list_macs = f_macs.iloc[:, 14].dropna().unique().tolist() if not f_macs.empty else []
                 st.selectbox("🤖 Machine Number:", options=list_macs if list_macs else ["N/A"])
             
@@ -84,7 +81,7 @@ def main():
             
             # --- TÌM PART NUMBER ---
             st.subheader("🔍 Tìm Part Number")
-            input_search = st.text_input("Nhập mã (ví dụ: 3608080970; 4007010482):", key="search_input")
+            input_search = st.text_input("Nhập mã (ví dụ: 3608080970; 4007010482):")
             
             if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
                 if input_search:
@@ -113,8 +110,11 @@ def main():
                 df_cart.insert(0, 'No.', range(1, len(df_cart) + 1))
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
                 
+                # Sắp xếp hiển thị: No -> Part No -> Name -> Qty -> Unit -> VAT -> Price -> %Dist -> Amount -> Xoá
+                display_cols = ["No.", "Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Amount", "Xoá"]
+                
                 edited_df = st.data_editor(
-                    df_cart,
+                    df_cart[display_cols],
                     column_config={
                         "No.": st.column_config.NumberColumn(disabled=True),
                         "Part Number": st.column_config.TextColumn(disabled=True),
@@ -125,12 +125,12 @@ def main():
                         "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
                         "Qty": st.column_config.NumberColumn(width=60, min_value=1),
                         "%Dist": st.column_config.NumberColumn(width=80, format="%d%%"),
-                        "Xoá": st.column_config.CheckboxColumn(width=50)
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50) # Cột xoá nằm cuối
                     },
                     use_container_width=True, hide_index=True, key="cart_editor"
                 )
 
-                if not edited_df.equals(df_cart):
+                if not edited_df.equals(df_cart[display_cols]):
                     new_cart = []
                     for i, row in edited_df.iterrows():
                         if not row['Xoá']:
@@ -167,7 +167,16 @@ def main():
                 st.button("💾 Lưu báo giá", use_container_width=True, type="primary")
 
         elif st.session_state.sub_action == "search":
-            st.info("Order Management is coming soon...")
+            st.subheader("🔍 Order Management")
+            # Tạo 3 Tab theo yêu cầu
+            tab1, tab2, tab3 = st.tabs(["📄 Quotations", "🚚 Offers_Tracking", "📊 SP_Report"])
+            
+            with tab1:
+                st.write("Danh sách các bản chào giá (Quotations) sẽ hiển thị ở đây.")
+            with tab2:
+                st.write("Theo dõi trạng thái đơn hàng (Offers_Tracking) sẽ hiển thị ở đây.")
+            with tab3:
+                st.write("Báo cáo chi tiết phụ tùng (SP_Report) sẽ hiển thị ở đây.")
 
     elif menu_selection == "🗂️ Master Data":
         st.dataframe(df_sp, use_container_width=True)
