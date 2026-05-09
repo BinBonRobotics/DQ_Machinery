@@ -42,7 +42,7 @@ def main():
     menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
     if menu_selection == "📄 Báo Giá Phụ Tùng":
-        # --- 2 NÚT TRÊN CÙNG (GIỮ NGUYÊN) ---
+        # --- 2 NÚT ĐIỀU HƯỚNG TRÊN CÙNG (GIỮ NGUYÊN) ---
         col_btn1, col_btn2, _ = st.columns([1, 1, 4])
         if col_btn1.button("➕ Tạo Báo Giá", use_container_width=True, type="primary" if st.session_state.sub_action=="create" else "secondary"):
             st.session_state.sub_action = "create"
@@ -52,7 +52,7 @@ def main():
         st.divider()
 
         if st.session_state.sub_action == "create":
-            # --- THÔNG TIN KHÁCH HÀNG (CHỐNG LỖI DATA TRỐNG) ---
+            # --- THÔNG TIN KHÁCH HÀNG (LOGIC CHỐNG LỖI) ---
             if df_mst is not None:
                 r1c1, r1c2 = st.columns(2)
                 with r1c1:
@@ -82,7 +82,7 @@ def main():
 
             # --- TÌM KIẾM ---
             st.subheader("🔍 Tìm Part Number")
-            input_search = st.text_input("Nhập mã (cách nhau bởi dấu ;):")
+            input_search = st.text_input("Nhập mã (ví dụ: 4007010482; 2024956492...):")
             
             if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
                 if input_search:
@@ -107,44 +107,48 @@ def main():
                             })
                     st.rerun()
 
-            # --- BẢNG GIỎ HÀNG (THIẾT KẾ MỚI) ---
+            # --- DANH SÁCH CHI TIẾT (XỬ LÝ NÚT XÓA NGANG HÀNG) ---
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 
-                # Chuẩn bị dữ liệu bảng
+                # Tạo DataFrame để hiển thị
                 df_cart = pd.DataFrame(st.session_state.cart)
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
                 df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
 
-                # Chia layout: Cột lớn cho Bảng, Cột nhỏ cho nút Xóa
-                main_col, del_col = st.columns([9, 1])
+                # Layout chính: Bảng chiếm phần lớn, cột nút xóa chiếm phần rất nhỏ bên phải
+                main_table_col, delete_button_col = st.columns([8.5, 1.5])
 
-                with main_col:
+                with main_table_col:
                     edited_df = st.data_editor(
                         df_cart,
                         column_config={
-                            "No": st.column_config.NumberColumn("No", width=40, disabled=True),
-                            "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1),
-                            "Unit": st.column_config.TextColumn("Unit", width=60, disabled=True),
-                            "VAT": st.column_config.TextColumn("VAT", width=60, disabled=True),
+                            "No": st.column_config.NumberColumn("No", width=35, disabled=True),
+                            "Part Number": st.column_config.TextColumn("Part Number", width="medium", disabled=True),
+                            "Qty": st.column_config.NumberColumn("Qty", width=50, min_value=1),
+                            "Unit": st.column_config.TextColumn("Unit", width=50, disabled=True),
+                            "VAT": st.column_config.TextColumn("VAT", width=50, disabled=True),
                             "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d"),
-                            "%Dist": st.column_config.NumberColumn("%Dist", width=70),
+                            "%Dist": st.column_config.NumberColumn("%Dist", width=60),
                             "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True)
                         },
                         use_container_width=True,
                         hide_index=True,
-                        key="editor_v11"
+                        key="quote_editor_v2"
                     )
 
-                with del_col:
-                    st.write("") # Căn chỉnh khoảng cách tiêu đề
+                with delete_button_col:
+                    # Tạo khoảng trống để tiêu đề nút xóa ngang hàng với tiêu đề bảng
                     st.write("") 
+                    st.write("")
                     for i in range(len(st.session_state.cart)):
-                        if st.button(f"Xoá #{i+1}", key=f"btn_del_{i}", use_container_width=True):
-                            st.session_state.cart.pop(i)
-                            st.rerun()
+                        # Container giúp cố định chiều cao hàng để khớp với hàng của bảng
+                        with st.container():
+                            if st.button(f"Xoá #{i+1}", key=f"del_row_{i}", use_container_width=True):
+                                st.session_state.cart.pop(i)
+                                st.rerun()
 
-                # Kiểm tra thay đổi dữ liệu
+                # Cập nhật session state khi dữ liệu bảng thay đổi
                 if not edited_df.drop(columns=['No', 'Amount']).equals(pd.DataFrame(st.session_state.cart)):
                     st.session_state.cart = edited_df.drop(columns=['No', 'Amount']).to_dict('records')
                     st.rerun()
@@ -153,7 +157,7 @@ def main():
                     st.session_state.cart = []
                     st.rerun()
 
-                # --- 2 NÚT BẤM DƯỚI CÙNG ---
+                # --- 2 NÚT XÁC NHẬN DƯỚI CÙNG ---
                 st.write("")
                 b1, b2, _ = st.columns([1.5, 1.5, 4])
                 b1.button("💾 Lưu báo giá", use_container_width=True)
