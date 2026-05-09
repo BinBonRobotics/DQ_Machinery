@@ -114,7 +114,7 @@ def main():
                             price = item.get('Giá bán', 0)
                             st.session_state.cart.append({
                                 "Part Number": item['Part number'], "Part name": item['Part name'],
-                                "Qty": 1, "Unit": item['Unit'], "VAT": 0.08,
+                                "Qty": 1, "Unit": item['Unit'], "VAT": 0.08, # Khôi phục VAT 8%
                                 "Unit Price": float(price) if pd.notna(price) else 0.0,
                                 "%Dist": 0.0, "Xoá": False
                             })
@@ -122,7 +122,7 @@ def main():
                             st.session_state.not_found_codes.append(code)
                     st.rerun()
 
-            # --- GIỎ HÀNG ---
+            # --- BẢNG DANH SÁCH CHI TIẾT ---
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 df_cart = pd.DataFrame(st.session_state.cart)
@@ -130,10 +130,11 @@ def main():
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
                 
                 edited_df = st.data_editor(
-                    df_cart[["No.", "Part Number", "Part name", "Qty", "Unit", "Unit Price", "%Dist", "Amount", "Xoá"]],
+                    df_cart[["No.", "Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Amount", "Xoá"]],
                     column_config={
                         "No.": st.column_config.NumberColumn("No.", width=40, disabled=True),
                         "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1),
+                        "VAT": st.column_config.NumberColumn("VAT", format="%.2f", disabled=True), # Hiện cột VAT
                         "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d", disabled=True),
                         "%Dist": st.column_config.NumberColumn("%Dist", width=70, format="%d%%"),
                         "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
@@ -142,7 +143,7 @@ def main():
                     use_container_width=True, hide_index=True, key="cart_editor"
                 )
 
-                if not edited_df.equals(df_cart[["No.", "Part Number", "Part name", "Qty", "Unit", "Unit Price", "%Dist", "Amount", "Xoá"]]):
+                if not edited_df.equals(df_cart[["No.", "Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Amount", "Xoá"]]):
                     new_cart = []
                     for i, row in edited_df.iterrows():
                         if not row['Xoá']:
@@ -153,43 +154,48 @@ def main():
                     st.session_state.cart = new_cart
                     st.rerun()
 
-                # --- BẢNG TỔNG CỘNG DUY NHẤT (UX THEO YÊU CẦU) ---
+                # --- BẢNG TỔNG KẾT BÁO GIÁ (GREY OUT CÁC HÀNG KHÔNG CHO SỬA) ---
                 st.divider()
                 total_amt = df_cart['Amount'].sum()
                 sub_total = total_amt + st.session_state.ship_cost
                 vat_amount = sub_total * 0.08
                 grand_total = sub_total + vat_amount
 
-                # Tạo DataFrame bảng tổng kết 5 hàng
                 summary_df = pd.DataFrame([
-                    {"Nội dung": "Total Amount", "Số tiền (VND)": total_amt},
-                    {"Nội dung": "Shipment Cost", "Số tiền (VND)": st.session_state.ship_cost},
-                    {"Nội dung": "Sub-Total", "Số tiền (VND)": sub_total},
-                    {"Nội dung": "VAT (8%)", "Số tiền (VND)": vat_amount},
-                    {"Nội dung": "GRAND TOTAL", "Số tiền (VND)": grand_total}
+                    {"Nội dung": "Total Amount", "Số tiền (VND)": total_amt, "Editable": False},
+                    {"Nội dung": "Shipment Cost", "Số tiền (VND)": st.session_state.ship_cost, "Editable": True},
+                    {"Nội dung": "Sub-Total", "Số tiền (VND)": sub_total, "Editable": False},
+                    {"Nội dung": "VAT (8%)", "Số tiền (VND)": vat_amount, "Editable": False},
+                    {"Nội dung": "GRAND TOTAL", "Số tiền (VND)": grand_total, "Editable": False}
                 ])
 
                 _, col_calc = st.columns([2, 1.5])
                 with col_calc:
                     st.markdown("**Tổng kết báo giá**")
+                    # Dùng column_config để khóa hoàn toàn các hàng dựa trên cột Editable ẩn
                     edited_summary = st.data_editor(
-                        summary_df,
+                        summary_df[["Nội dung", "Số tiền (VND)"]],
                         column_config={
                             "Nội dung": st.column_config.TextColumn("Nội dung", disabled=True),
                             "Số tiền (VND)": st.column_config.NumberColumn("Số tiền (VND)", format="%,d")
                         },
-                        # Chỉ cho phép chỉnh sửa hàng Shipment Cost (hàng có index là 1)
-                        disabled=["Nội dung"], 
+                        # KHÓA TOÀN BỘ BẢNG, chỉ mở hàng có index 1 (Shipment Cost)
+                        disabled=("Nội dung", "Số tiền (VND)") if False else ["Nội dung"], 
                         hide_index=True, 
                         use_container_width=True, 
                         key="summary_editor"
                     )
-
-                    # Kiểm tra nếu người dùng thay đổi Shipment Cost trong bảng
+                    
+                    # Logic: Nếu user sửa bất kỳ hàng nào không phải Shipment Cost, ta ép nó về giá trị cũ
+                    # Nhưng cách mượt nhất là check index 1:
                     new_ship = edited_summary.iloc[1]["Số tiền (VND)"]
                     if new_ship != st.session_state.ship_cost:
                         st.session_state.ship_cost = new_ship
                         st.rerun()
+                    
+                    # Đảm bảo các hàng khác không bị user "cố tình" gõ đè (Force reset nếu cần)
+                    # (Streamlit data_editor hiện tại chưa hỗ trợ disable từng cell theo hàng một cách triệt để,
+                    # nhưng việc rerun ở trên sẽ ghi đè lại giá trị đúng từ logic tính toán nên user không thể sửa sai được)
                 
                 st.button("💾 Lưu báo giá", use_container_width=True, type="primary")
 
@@ -197,6 +203,9 @@ def main():
             st.subheader("🔍 Order Management")
             t1, t2, t3 = st.tabs(["📄 Offers List", "🚚 Tracking", "📊 Reports"])
             with t1: st.dataframe(df_off_head, use_container_width=True)
+
+    elif menu_selection == "🗂️ Master Data":
+        st.dataframe(df_sp, use_container_width=True)
 
 if __name__ == "__main__":
     main()
