@@ -28,9 +28,7 @@ def main():
     url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
     df_sp, df_mst, df_con, df_mac, df_staff = load_all_data(url)
 
-    # Khởi tạo giỏ hàng nếu chưa có
     if 'cart' not in st.session_state: st.session_state.cart = []
-    # Khởi tạo trạng thái menu nếu chưa có
     if 'sub_action' not in st.session_state: st.session_state.sub_action = "create"
 
     # --- SIDEBAR (GIỮ NGUYÊN) ---
@@ -54,7 +52,7 @@ def main():
         st.divider()
 
         if st.session_state.sub_action == "create":
-            # --- THÔNG TIN KHÁCH HÀNG (GIỮ NGUYÊN LOGIC CHỐNG LỖI) ---
+            # --- THÔNG TIN KHÁCH HÀNG (CHỐNG LỖI DATA TRỐNG) ---
             if df_mst is not None:
                 r1c1, r1c2 = st.columns(2)
                 with r1c1:
@@ -84,7 +82,7 @@ def main():
 
             # --- TÌM KIẾM ---
             st.subheader("🔍 Tìm Part Number")
-            input_search = st.text_input("Nhập mã (ví dụ: 4007010482; 2024956492...):")
+            input_search = st.text_input("Nhập mã (cách nhau bởi dấu ;):")
             
             if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
                 if input_search:
@@ -98,7 +96,6 @@ def main():
                             vat_raw = item.iloc[13] if len(item) > 13 else 0.08
                             vat_display = f"{int(float(vat_raw)*100)}%" if pd.notna(vat_raw) else "8%"
                             
-                            # Thêm các cột mới: %Dist và Amount khởi tạo
                             st.session_state.cart.append({
                                 "Part Number": item.iloc[1],
                                 "Part name": item.iloc[4],
@@ -106,62 +103,57 @@ def main():
                                 "Unit": item.iloc[7],
                                 "VAT": vat_display,
                                 "Unit Price": float(price) if pd.notna(price) else 0.0,
-                                "%Dist": 0.0,
-                                "Amount": float(price) if pd.notna(price) else 0.0
+                                "%Dist": 0.0
                             })
                     st.rerun()
 
-            # --- BẢNG GIỎ HÀNG (CẬP NHẬT THEO YÊU CẦU MỚI) ---
+            # --- BẢNG GIỎ HÀNG (THIẾT KẾ MỚI) ---
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
+                
+                # Chuẩn bị dữ liệu bảng
                 df_cart = pd.DataFrame(st.session_state.cart)
-                
-                # Tính toán lại Amount dựa trên %Dist và Qty
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
-                
-                # Chèn cột No
-                if 'No' not in df_cart.columns:
-                    df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
-                else:
-                    df_cart['No'] = range(1, len(df_cart) + 1)
+                df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
 
-                # Hiển thị bảng Editor
-                edited_df = st.data_editor(
-                    df_cart,
-                    column_config={
-                        "No": st.column_config.NumberColumn("No", width="small", disabled=True),
-                        "Qty": st.column_config.NumberColumn("Qty", width="small", min_value=1),
-                        "Unit": st.column_config.TextColumn("Unit", width="small", disabled=True),
-                        "VAT": st.column_config.TextColumn("VAT", width="small", disabled=True),
-                        "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d"),
-                        "%Dist": st.column_config.NumberColumn("%Dist", help="Phần trăm chiết khấu (0-100)"),
-                        "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True)
-                    },
-                    use_container_width=True,
-                    hide_index=True,
-                    key="main_editor"
-                )
+                # Chia layout: Cột lớn cho Bảng, Cột nhỏ cho nút Xóa
+                main_col, del_col = st.columns([9, 1])
 
-                # Cập nhật lại session_state nếu có thay đổi trên UI (Qty, Price, %Dist)
-                if not edited_df.equals(df_cart):
-                    # Loại bỏ cột No trước khi lưu lại vào cart để tránh trùng lặp khi rerun
-                    st.session_state.cart = edited_df.drop(columns=['No']).to_dict('records')
-                    st.rerun()
+                with main_col:
+                    edited_df = st.data_editor(
+                        df_cart,
+                        column_config={
+                            "No": st.column_config.NumberColumn("No", width=40, disabled=True),
+                            "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1),
+                            "Unit": st.column_config.TextColumn("Unit", width=60, disabled=True),
+                            "VAT": st.column_config.TextColumn("VAT", width=60, disabled=True),
+                            "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d"),
+                            "%Dist": st.column_config.NumberColumn("%Dist", width=70),
+                            "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True)
+                        },
+                        use_container_width=True,
+                        hide_index=True,
+                        key="editor_v11"
+                    )
 
-                # --- NÚT XÓA TỪNG HÀNG ---
-                st.write("🗑️ **Xóa Part Number:**")
-                cols_del = st.columns(len(st.session_state.cart) if len(st.session_state.cart) < 10 else 10)
-                for i, item in enumerate(st.session_state.cart):
-                    with cols_del[i % 10]:
-                        if st.button(f"Xóa {i+1}", key=f"del_{i}", help=f"Xóa {item['Part Number']}"):
+                with del_col:
+                    st.write("") # Căn chỉnh khoảng cách tiêu đề
+                    st.write("") 
+                    for i in range(len(st.session_state.cart)):
+                        if st.button(f"Xoá #{i+1}", key=f"btn_del_{i}", use_container_width=True):
                             st.session_state.cart.pop(i)
                             st.rerun()
+
+                # Kiểm tra thay đổi dữ liệu
+                if not edited_df.drop(columns=['No', 'Amount']).equals(pd.DataFrame(st.session_state.cart)):
+                    st.session_state.cart = edited_df.drop(columns=['No', 'Amount']).to_dict('records')
+                    st.rerun()
 
                 if st.button("🗑️ Xóa sạch bảng"):
                     st.session_state.cart = []
                     st.rerun()
 
-                # --- 2 NÚT BẤM DƯỚI CÙNG (GIỮ NGUYÊN) ---
+                # --- 2 NÚT BẤM DƯỚI CÙNG ---
                 st.write("")
                 b1, b2, _ = st.columns([1.5, 1.5, 4])
                 b1.button("💾 Lưu báo giá", use_container_width=True)
