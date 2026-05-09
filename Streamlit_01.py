@@ -70,7 +70,6 @@ def main():
                     list_conts = f_conts.iloc[:, 7].dropna().unique().tolist()
                     st.selectbox("👤 Contact Person:", options=list_conts if list_conts else ["N/A"])
                     addr = row_mst.get('Địa chỉ', row_mst.get('Full Information customer', '-'))
-                    # CẬP NHẬT: Thêm chữ "Địa chỉ:"
                     st.markdown(f"📍 **Địa chỉ:** {str(addr)}")
 
                 r2c1, r2c2 = st.columns(2)
@@ -88,13 +87,12 @@ def main():
             st.subheader("🔍 Tìm Part Number")
             input_search = st.text_input("Nhập mã (ví dụ: 4007010482; 2024956492...):")
             
-            # CẬP NHẬT: Hiển thị thông báo không tìm thấy ngay dưới ô search
             if st.session_state.not_found_codes:
                 st.error(f"❌ Không tìm thấy Part Number: {', '.join(st.session_state.not_found_codes)}")
 
             if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
                 if input_search:
-                    st.session_state.not_found_codes = [] # Reset lại danh sách lỗi
+                    st.session_state.not_found_codes = [] 
                     codes = [clean_code(c) for c in input_search.split(';') if c.strip()]
                     df_sp['CLEAN_PN'] = df_sp.iloc[:, 1].apply(clean_code)
                     
@@ -123,7 +121,6 @@ def main():
                                 "Xoá": False
                             })
                         else:
-                            # CẬP NHẬT: Lưu mã không tìm thấy vào session state
                             st.session_state.not_found_codes.append(code)
                     st.rerun()
 
@@ -136,13 +133,20 @@ def main():
                 df_cart_render = df_cart[display_cols].copy()
                 df_cart_render.insert(0, 'No', range(1, len(df_cart_render) + 1))
 
+                # --- CẬP NHẬT: PHÂN QUYỀN CHỈNH SỬA CỘT ---
                 edited_df = st.data_editor(
                     df_cart_render,
                     column_config={
                         "No": st.column_config.NumberColumn("No", width=35, disabled=True),
-                        "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d"),
+                        "Part Number": st.column_config.TextColumn("Part Number", disabled=True),
+                        "Part name": st.column_config.TextColumn("Part name", disabled=True),
+                        "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1, disabled=False), # Cho phép sửa
+                        "Unit": st.column_config.TextColumn("Unit", width=50, disabled=True),
+                        "VAT": st.column_config.TextColumn("VAT", width=50, disabled=True),
+                        "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d", disabled=True),
+                        "%Dist": st.column_config.NumberColumn("%Dist", width=60, min_value=0.0, max_value=100.0, disabled=False), # Cho phép sửa
                         "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
-                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50)
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50, disabled=False)
                     },
                     use_container_width=True,
                     hide_index=True,
@@ -154,8 +158,8 @@ def main():
                     new_cart = []
                     for i in remaining_indices:
                         item = st.session_state.cart[i].copy()
+                        # Cập nhật giá trị mới từ bảng editor vào session state
                         item['Qty'] = edited_df.loc[i, 'Qty']
-                        item['Unit Price'] = edited_df.loc[i, 'Unit Price']
                         item['%Dist'] = edited_df.loc[i, '%Dist']
                         new_cart.append(item)
                     st.session_state.cart = new_cart
