@@ -14,7 +14,6 @@ def load_all_data():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
-        # Đọc đủ 5 tab cần thiết cho báo giá
         df_sp = conn.read(spreadsheet=url, worksheet="SP List")
         df_mst = conn.read(spreadsheet=url, worksheet="Customer_MST")
         df_con = conn.read(spreadsheet=url, worksheet="Customer_Contact")
@@ -30,7 +29,6 @@ def main():
     df_sp, df_mst, df_con, df_mac, df_staff = load_all_data()
     if df_mst is None: return
 
-    # Khởi tạo Session State
     if 'cart' not in st.session_state: st.session_state.cart = []
     if 'sub_action' not in st.session_state: st.session_state.sub_action = "create"
     if 'ship_cost' not in st.session_state: st.session_state.ship_cost = 0.0
@@ -60,13 +58,11 @@ def main():
                 cust_name = st.selectbox("🎯 Khách hàng:", options=cust_options)
                 row_mst = df_mst[df_mst['Customer name'] == cust_name].iloc[0]
                 
-                # Lấy Customer No chuẩn
                 c_no_raw = row_mst.get('Customer no', row_mst.get('Customer\nno', ''))
                 c_no = str(c_no_raw).split('.')[0] if pd.notna(c_no_raw) else "N/A"
                 st.info(f"**Cust No:** {c_no} | **MST:** {row_mst.get('Mã số thuế', '-')}")
             
             with r1c2:
-                # Lấy Contact Person theo Customer No
                 f_conts = df_con[df_con.iloc[:, 1].astype(str).str.contains(clean_code(c_no))] if df_con is not None else pd.DataFrame()
                 list_conts = f_conts.iloc[:, 7].dropna().unique().tolist() if not f_conts.empty else []
                 st.selectbox("👤 Contact Person:", options=list_conts if list_conts else ["N/A"])
@@ -74,13 +70,13 @@ def main():
 
             r2c1, r2c2 = st.columns(2)
             with r2c1:
-                # KHÔI PHỤC Machine Number
+                # --- SỬA THAM CHIẾU MACHINE NUMBER SANG CỘT O (Customer Machine) ---
                 f_macs = df_mac[df_mac.iloc[:, 1].astype(str).str.contains(clean_code(c_no))] if df_mac is not None else pd.DataFrame()
-                list_macs = f_macs.iloc[:, 4].dropna().unique().tolist() if not f_macs.empty else []
+                # Cột O là cột thứ 15 (index 14 trong Python)
+                list_macs = f_macs.iloc[:, 14].dropna().unique().tolist() if not f_macs.empty else []
                 st.selectbox("🤖 Machine Number:", options=list_macs if list_macs else ["N/A"])
             
             with r2c2:
-                # KHÔI PHỤC Người lập báo giá (Staff)
                 list_staff = df_staff['Name'].dropna().unique().tolist() if (df_staff is not None and 'Name' in df_staff.columns) else ["Admin"]
                 st.selectbox("✍️ Người lập báo giá:", options=list_staff)
 
@@ -90,18 +86,14 @@ def main():
             st.subheader("🔍 Tìm Part Number")
             input_search = st.text_input("Nhập mã (ví dụ: 3608080970; 4007010482):", key="search_input")
             
-            # FIX LỖI NÚT THÊM VÀO GIỎ
             if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
                 if input_search:
                     codes = [clean_code(c) for c in input_search.split(';') if c.strip()]
-                    # Tạo cột clean để so khớp chính xác
                     df_sp['CLEAN_PN'] = df_sp['Part number'].apply(clean_code)
-                    
                     for code in codes:
                         match = df_sp[df_sp['CLEAN_PN'] == code]
                         if not match.empty:
                             item = match.iloc[0]
-                            # Tránh trùng lặp logic giỏ hàng
                             st.session_state.cart.append({
                                 "Part Number": item['Part number'],
                                 "Part name": item['Part name'],
@@ -138,12 +130,10 @@ def main():
                     use_container_width=True, hide_index=True, key="cart_editor"
                 )
 
-                # Kiểm tra thay đổi để cập nhật State
                 if not edited_df.equals(df_cart):
                     new_cart = []
                     for i, row in edited_df.iterrows():
                         if not row['Xoá']:
-                            # Giữ nguyên thông tin gốc, chỉ cập nhật Qty và %Dist
                             item = st.session_state.cart[i].copy()
                             item['Qty'] = row['Qty']
                             item['%Dist'] = row['%Dist']
@@ -158,8 +148,6 @@ def main():
                 _, col_calc = st.columns([2, 1.5])
                 with col_calc:
                     st.markdown("#### Tổng kết báo giá")
-                    
-                    # Ô nhập Shipment Cost (VND)
                     ship_val = st.number_input("Nhập Shipment Cost (VND):", value=float(st.session_state.ship_cost), step=1000.0, format="%.0f")
                     if ship_val != st.session_state.ship_cost:
                         st.session_state.ship_cost = ship_val
@@ -169,7 +157,6 @@ def main():
                     vat_calc = sub_total * 0.08
                     grand_total = sub_total + vat_calc
 
-                    # Bảng tổng kết tĩnh để Grey-out 100%
                     summary_data = {
                         "Nội dung": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT (8%)", "GRAND TOTAL"],
                         "Số tiền (VND)": [f"{total_amt:,.0f}", f"{st.session_state.ship_cost:,.0f}", 
