@@ -39,7 +39,6 @@ def main():
     
     data = load_all_data()
     df_sp, df_mst, df_con, df_mac, df_staff, df_off_desc, df_off_head, df_off_track = data
-
     if df_mst is None: return
 
     # Khởi tạo session state
@@ -98,7 +97,6 @@ def main():
             # --- TÌM PART NUMBER ---
             st.subheader("🔍 Tìm Part Number")
             input_search = st.text_input("Nhập mã (ví dụ: 3608080970; 4007010482...):")
-            
             if st.session_state.not_found_codes:
                 st.error(f"❌ Không tìm thấy: {', '.join(st.session_state.not_found_codes)}")
 
@@ -114,7 +112,7 @@ def main():
                             price = item.get('Giá bán', 0)
                             st.session_state.cart.append({
                                 "Part Number": item['Part number'], "Part name": item['Part name'],
-                                "Qty": 1, "Unit": item['Unit'], "VAT": 0.08, # Khôi phục VAT 8%
+                                "Qty": 1, "Unit": item['Unit'], "VAT": 8, # Để giá trị là 8
                                 "Unit Price": float(price) if pd.notna(price) else 0.0,
                                 "%Dist": 0.0, "Xoá": False
                             })
@@ -122,7 +120,7 @@ def main():
                             st.session_state.not_found_codes.append(code)
                     st.rerun()
 
-            # --- BẢNG DANH SÁCH CHI TIẾT ---
+            # --- BẢNG DANH SÁCH CHI TIẾT (KHÓA DỮ LIỆU CHỈ MỞ QTY & %DIST) ---
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 df_cart = pd.DataFrame(st.session_state.cart)
@@ -133,11 +131,15 @@ def main():
                     df_cart[["No.", "Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Amount", "Xoá"]],
                     column_config={
                         "No.": st.column_config.NumberColumn("No.", width=40, disabled=True),
-                        "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1),
-                        "VAT": st.column_config.NumberColumn("VAT", format="%.2f", disabled=True), # Hiện cột VAT
+                        "Part Number": st.column_config.TextColumn("Part Number", disabled=True),
+                        "Part name": st.column_config.TextColumn("Part name", disabled=True),
+                        "Unit": st.column_config.TextColumn("Unit", disabled=True),
+                        "VAT": st.column_config.NumberColumn("VAT", format="%d", disabled=True),
                         "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d", disabled=True),
-                        "%Dist": st.column_config.NumberColumn("%Dist", width=70, format="%d%%"),
                         "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
+                        # Chỉ cột Qty và %Dist là không có disabled=True
+                        "Qty": st.column_config.NumberColumn("Qty", width=60, min_value=1),
+                        "%Dist": st.column_config.NumberColumn("%Dist", width=70, format="%d%%"),
                         "Xoá": st.column_config.CheckboxColumn("Xoá", width=50)
                     },
                     use_container_width=True, hide_index=True, key="cart_editor"
@@ -154,7 +156,7 @@ def main():
                     st.session_state.cart = new_cart
                     st.rerun()
 
-                # --- BẢNG TỔNG KẾT BÁO GIÁ (GREY OUT CÁC HÀNG KHÔNG CHO SỬA) ---
+                # --- BẢNG TỔNG KẾT BÁO GIÁ (KHÓA TẤT CẢ TRỪ SHIPMENT COST) ---
                 st.divider()
                 total_amt = df_cart['Amount'].sum()
                 sub_total = total_amt + st.session_state.ship_cost
@@ -162,40 +164,41 @@ def main():
                 grand_total = sub_total + vat_amount
 
                 summary_df = pd.DataFrame([
-                    {"Nội dung": "Total Amount", "Số tiền (VND)": total_amt, "Editable": False},
-                    {"Nội dung": "Shipment Cost", "Số tiền (VND)": st.session_state.ship_cost, "Editable": True},
-                    {"Nội dung": "Sub-Total", "Số tiền (VND)": sub_total, "Editable": False},
-                    {"Nội dung": "VAT (8%)", "Số tiền (VND)": vat_amount, "Editable": False},
-                    {"Nội dung": "GRAND TOTAL", "Số tiền (VND)": grand_total, "Editable": False}
+                    {"Nội dung": "Total Amount", "Số tiền (VND)": total_amt},
+                    {"Nội dung": "Shipment Cost", "Số tiền (VND)": st.session_state.ship_cost},
+                    {"Nội dung": "Sub-Total", "Số tiền (VND)": sub_total},
+                    {"Nội dung": "VAT (8%)", "Số tiền (VND)": vat_amount},
+                    {"Nội dung": "GRAND TOTAL", "Số tiền (VND)": grand_total}
                 ])
 
                 _, col_calc = st.columns([2, 1.5])
                 with col_calc:
                     st.markdown("**Tổng kết báo giá**")
-                    # Dùng column_config để khóa hoàn toàn các hàng dựa trên cột Editable ẩn
                     edited_summary = st.data_editor(
-                        summary_df[["Nội dung", "Số tiền (VND)"]],
+                        summary_df,
                         column_config={
                             "Nội dung": st.column_config.TextColumn("Nội dung", disabled=True),
                             "Số tiền (VND)": st.column_config.NumberColumn("Số tiền (VND)", format="%,d")
                         },
-                        # KHÓA TOÀN BỘ BẢNG, chỉ mở hàng có index 1 (Shipment Cost)
-                        disabled=("Nội dung", "Số tiền (VND)") if False else ["Nội dung"], 
+                        # Khóa cột "Số tiền" một cách logic: Chỉ cho phép sửa nếu đó là hàng Shipment Cost
+                        # Thực tế: Ta dùng st.rerun để đè lại giá trị nếu user cố tình sửa các hàng kia.
                         hide_index=True, 
                         use_container_width=True, 
                         key="summary_editor"
                     )
                     
-                    # Logic: Nếu user sửa bất kỳ hàng nào không phải Shipment Cost, ta ép nó về giá trị cũ
-                    # Nhưng cách mượt nhất là check index 1:
+                    # Logic cập nhật và khóa giá trị
                     new_ship = edited_summary.iloc[1]["Số tiền (VND)"]
-                    if new_ship != st.session_state.ship_cost:
-                        st.session_state.ship_cost = new_ship
-                        st.rerun()
                     
-                    # Đảm bảo các hàng khác không bị user "cố tình" gõ đè (Force reset nếu cần)
-                    # (Streamlit data_editor hiện tại chưa hỗ trợ disable từng cell theo hàng một cách triệt để,
-                    # nhưng việc rerun ở trên sẽ ghi đè lại giá trị đúng từ logic tính toán nên user không thể sửa sai được)
+                    # Nếu user sửa bất kỳ hàng nào khác (0, 2, 3, 4), giá trị sẽ tự reset về đúng công thức
+                    if (edited_summary.iloc[0]["Số tiền (VND)"] != total_amt or 
+                        edited_summary.iloc[2]["Số tiền (VND)"] != sub_total or
+                        edited_summary.iloc[3]["Số tiền (VND)"] != vat_amount or
+                        edited_summary.iloc[4]["Số tiền (VND)"] != grand_total or
+                        new_ship != st.session_state.ship_cost):
+                        
+                        st.session_state.ship_cost = new_ship # Cập nhật cái duy nhất được phép
+                        st.rerun() # Ghi đè lại toàn bộ bảng theo công thức chuẩn
                 
                 st.button("💾 Lưu báo giá", use_container_width=True, type="primary")
 
