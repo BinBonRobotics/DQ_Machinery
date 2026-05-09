@@ -33,6 +33,7 @@ def main():
     if 'cart' not in st.session_state: st.session_state.cart = []
     if 'sub_action' not in st.session_state: st.session_state.sub_action = "create"
     if 'ship_cost' not in st.session_state: st.session_state.ship_cost = 0.0
+    if 'not_found_codes' not in st.session_state: st.session_state.not_found_codes = []
 
     # --- SIDEBAR ---
     st.sidebar.title("⚙️ Cấu hình")
@@ -45,7 +46,6 @@ def main():
     menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
     if menu_selection == "📄 Báo Giá Phụ Tùng":
-        # 2 nút điều hướng đầu trang
         col_btn1, col_btn2, _ = st.columns([1, 1, 4])
         if col_btn1.button("➕ Tạo Báo Giá", use_container_width=True, type="primary" if st.session_state.sub_action=="create" else "secondary"):
             st.session_state.sub_action = "create"
@@ -56,7 +56,6 @@ def main():
 
         if st.session_state.sub_action == "create":
             if df_mst is not None:
-                # Row 1: Khách hàng & Người liên hệ
                 r1c1, r1c2 = st.columns(2)
                 with r1c1:
                     cust_name = st.selectbox("🎯 Khách hàng:", options=sorted(df_mst['Customer name'].unique()))
@@ -71,14 +70,12 @@ def main():
                     list_conts = f_conts.iloc[:, 7].dropna().unique().tolist()
                     st.selectbox("👤 Contact Person:", options=list_conts if list_conts else ["N/A"])
                     addr = row_mst.get('Địa chỉ', row_mst.get('Full Information customer', '-'))
-                    st.caption(f"📍 {str(addr)}")
+                    # CẬP NHẬT: Thêm chữ "Địa chỉ:"
+                    st.markdown(f"📍 **Địa chỉ:** {str(addr)}")
 
-                # Row 2: Machine Number & Người lập báo giá (MỚI BỔ SUNG)
                 r2c1, r2c2 = st.columns(2)
                 with r2c1:
-                    # Lọc máy theo mã khách hàng
                     f_machines = df_mac[df_mac.iloc[:, 1].astype(str).str.contains(clean_code(c_no))]
-                    # Lấy cột Machine Number (cột index 3 hoặc 4 tùy cấu trúc bảng)
                     list_machines = f_machines.iloc[:, 3].dropna().unique().tolist() if not f_machines.empty else []
                     st.selectbox("🤖 Machine Number:", options=list_machines if list_machines else ["N/A"])
                 
@@ -88,14 +85,19 @@ def main():
 
             st.divider()
 
-            # Phần tìm kiếm và thêm vào giỏ
             st.subheader("🔍 Tìm Part Number")
             input_search = st.text_input("Nhập mã (ví dụ: 4007010482; 2024956492...):")
             
+            # CẬP NHẬT: Hiển thị thông báo không tìm thấy ngay dưới ô search
+            if st.session_state.not_found_codes:
+                st.error(f"❌ Không tìm thấy Part Number: {', '.join(st.session_state.not_found_codes)}")
+
             if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
                 if input_search:
+                    st.session_state.not_found_codes = [] # Reset lại danh sách lỗi
                     codes = [clean_code(c) for c in input_search.split(';') if c.strip()]
                     df_sp['CLEAN_PN'] = df_sp.iloc[:, 1].apply(clean_code)
+                    
                     for code in codes:
                         match = df_sp[df_sp['CLEAN_PN'] == code]
                         if not match.empty:
@@ -120,9 +122,11 @@ def main():
                                 "%Dist": 0.0,
                                 "Xoá": False
                             })
+                        else:
+                            # CẬP NHẬT: Lưu mã không tìm thấy vào session state
+                            st.session_state.not_found_codes.append(code)
                     st.rerun()
 
-            # Hiển thị bảng chi tiết
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 df_cart = pd.DataFrame(st.session_state.cart)
@@ -145,7 +149,6 @@ def main():
                     key="main_editor"
                 )
 
-                # Xử lý logic xóa/cập nhật giỏ hàng
                 if not edited_df.equals(df_cart_render):
                     remaining_indices = edited_df[edited_df['Xoá'] == False].index.tolist()
                     new_cart = []
@@ -158,22 +161,15 @@ def main():
                     st.session_state.cart = new_cart
                     st.rerun()
 
-                # --- PHẦN TỔNG KẾT (THIẾT KẾ MỚI THẲNG HÀNG) ---
                 st.markdown("---")
                 total_amt = df_cart['Amount'].sum()
                 total_vat = (df_cart['Amount'] * df_cart['vat_num']).sum()
 
-                # Chia layout: Cột 1 trống, Cột 2 chứa bảng tổng hợp (nằm ngay dưới cột Amount)
                 c_left, c_right = st.columns([6, 4])
-                
                 with c_right:
-                    # Tạo bảng giả lập để các dòng chữ và số thẳng hàng tuyệt đối
-                    # Sử dụng st.columns bên trong để chia nhỏ tiêu đề và giá trị
-                    
                     def summary_row(label, value, is_input=False, is_bold=False):
                         sc1, sc2 = st.columns([1.5, 2])
-                        with sc1:
-                            st.write(f"**{label}**" if is_bold else label)
+                        with sc1: st.write(f"**{label}**" if is_bold else label)
                         with sc2:
                             if is_input:
                                 res = st.number_input(label, label_visibility="collapsed", 
@@ -186,20 +182,18 @@ def main():
 
                     summary_row("Total Amount:", total_amt)
                     summary_row("Shipment Cost:", 0, is_input=True)
-                    
                     sub_total = total_amt + st.session_state.ship_cost
                     summary_row("Sub-Total:", sub_total)
                     summary_row("VAT:", total_vat)
-                    
                     grand_total = sub_total + total_vat
                     summary_row("Grand Total:", grand_total, is_bold=True)
 
                 if st.button("🗑️ Xóa sạch toàn bộ bảng"):
                     st.session_state.cart = []
                     st.session_state.ship_cost = 0.0
+                    st.session_state.not_found_codes = []
                     st.rerun()
 
-                # 2 nút xác nhận cuối trang
                 st.write("")
                 b1, b2, _ = st.columns([1.5, 1.5, 4])
                 b1.button("💾 Lưu báo giá", use_container_width=True)
