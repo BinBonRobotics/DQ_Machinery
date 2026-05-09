@@ -104,7 +104,7 @@ def main():
                                 "VAT": vat_display,
                                 "Unit Price": float(price) if pd.notna(price) else 0.0,
                                 "%Dist": 0.0,
-                                "Xoá": False # Khởi tạo giá trị cho cột Xoá
+                                "Xoá": False
                             })
                     st.rerun()
 
@@ -112,14 +112,14 @@ def main():
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 
-                # Chuyển đổi sang DataFrame
                 df_cart = pd.DataFrame(st.session_state.cart)
-                
-                # Tính toán các cột hiển thị
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
+                
+                # Sắp xếp lại thứ tự cột để Xoá ở cuối
+                display_cols = ["Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Amount", "Xoá"]
+                df_cart = df_cart[display_cols]
                 df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
 
-                # Hiển thị bảng với cột Xoá cuối cùng
                 edited_df = st.data_editor(
                     df_cart,
                     column_config={
@@ -128,21 +128,18 @@ def main():
                         "Part name": st.column_config.TextColumn("Part name", disabled=True),
                         "Qty": st.column_config.NumberColumn("Qty", width=50, min_value=1),
                         "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d"),
+                        "%Dist": st.column_config.NumberColumn("%Dist", width=60),
                         "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
-                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=60, help="Tích chọn để xoá dòng này")
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=60, help="Tích chọn để xoá")
                     },
                     use_container_width=True,
                     hide_index=True,
-                    key="editor_delete_final_v5" # Thay đổi key để reset bảng hoàn toàn
+                    key="editor_layout_v10" # Dùng key mới để ép trình duyệt nhận diện cột Xoá ở cuối
                 )
 
-                # Kiểm tra nếu người dùng tích vào cột "Xoá"
                 if not edited_df.equals(df_cart):
-                    # Lọc những dòng KHÔNG bị tích chọn Xoá
                     new_cart_df = edited_df[edited_df['Xoá'] == False]
-                    # Lưu lại vào session (chỉ lấy các cột gốc, bỏ No và Amount)
-                    original_cols = ["Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Xoá"]
-                    st.session_state.cart = new_cart_df[original_cols].to_dict('records')
+                    st.session_state.cart = new_cart_df.drop(columns=['No', 'Amount']).to_dict('records')
                     st.rerun()
 
                 if st.button("🗑️ Xóa sạch toàn bộ bảng"):
