@@ -42,7 +42,7 @@ def main():
     menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
     if menu_selection == "📄 Báo Giá Phụ Tùng":
-        # --- 2 NÚT ĐIỀU HƯỚNG TRÊN CÙNG ---
+        # --- 2 NÚT ĐIỀU HƯỚNG ---
         col_btn1, col_btn2, _ = st.columns([1, 1, 4])
         if col_btn1.button("➕ Tạo Báo Giá", use_container_width=True, type="primary" if st.session_state.sub_action=="create" else "secondary"):
             st.session_state.sub_action = "create"
@@ -104,7 +104,7 @@ def main():
                                 "VAT": vat_display,
                                 "Unit Price": float(price) if pd.notna(price) else 0.0,
                                 "%Dist": 0.0,
-                                "Xoá": False  # Thêm trạng thái Xoá vào item
+                                "Xoá": False # Khởi tạo giá trị cho cột Xoá
                             })
                     st.rerun()
 
@@ -112,12 +112,14 @@ def main():
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 
-                # Chuẩn bị dữ liệu hiển thị
+                # Chuyển đổi sang DataFrame
                 df_cart = pd.DataFrame(st.session_state.cart)
+                
+                # Tính toán các cột hiển thị
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
                 df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
 
-                # Hiển thị bảng
+                # Hiển thị bảng với cột Xoá cuối cùng
                 edited_df = st.data_editor(
                     df_cart,
                     column_config={
@@ -125,32 +127,29 @@ def main():
                         "Part Number": st.column_config.TextColumn("Part Number", disabled=True),
                         "Part name": st.column_config.TextColumn("Part name", disabled=True),
                         "Qty": st.column_config.NumberColumn("Qty", width=50, min_value=1),
-                        "Unit": st.column_config.TextColumn("Unit", width=50, disabled=True),
-                        "VAT": st.column_config.TextColumn("VAT", width=50, disabled=True),
                         "Unit Price": st.column_config.NumberColumn("Unit Price", format="%,d"),
-                        "%Dist": st.column_config.NumberColumn("%Dist", width=60),
                         "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
-                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=60, help="Tích vào để xoá dòng") # Cột Xoá bên cạnh Amount
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=60, help="Tích chọn để xoá dòng này")
                     },
                     use_container_width=True,
                     hide_index=True,
-                    key="editor_final_v1"
+                    key="editor_delete_final_v5" # Thay đổi key để reset bảng hoàn toàn
                 )
 
-                # Xử lý Logic Xoá hàng
-                # Nếu dữ liệu thay đổi, kiểm tra cột 'Xoá'
+                # Kiểm tra nếu người dùng tích vào cột "Xoá"
                 if not edited_df.equals(df_cart):
-                    # Lọc những dòng mà người dùng KHÔNG tích vào ô 'Xoá'
-                    remaining_rows = edited_df[edited_df['Xoá'] == False]
-                    # Cập nhật lại session state (bỏ các cột hiển thị tạm No, Amount)
-                    st.session_state.cart = remaining_rows.drop(columns=['No', 'Amount']).to_dict('records')
+                    # Lọc những dòng KHÔNG bị tích chọn Xoá
+                    new_cart_df = edited_df[edited_df['Xoá'] == False]
+                    # Lưu lại vào session (chỉ lấy các cột gốc, bỏ No và Amount)
+                    original_cols = ["Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Xoá"]
+                    st.session_state.cart = new_cart_df[original_cols].to_dict('records')
                     st.rerun()
 
                 if st.button("🗑️ Xóa sạch toàn bộ bảng"):
                     st.session_state.cart = []
                     st.rerun()
 
-                # --- 2 NÚT XÁC NHẬN DƯỚI CÙNG (GIỮ NGUYÊN) ---
+                # --- 2 NÚT XÁC NHẬN ---
                 st.write("")
                 b1, b2, _ = st.columns([1.5, 1.5, 4])
                 b1.button("💾 Lưu báo giá", use_container_width=True)
