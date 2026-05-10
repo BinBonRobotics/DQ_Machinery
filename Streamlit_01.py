@@ -183,25 +183,47 @@ if df_mst is not None and option == "Spare Part Quotation":
             
             if col_save1.button("Save Quotation", type="primary", use_container_width=True):
                 try:
+                    # Sử dụng phương pháp append dữ liệu trực tiếp để tránh lỗi ghi đè tab
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     
-                    # 1. Lưu Header
-                    header_data = pd.DataFrame([{
-                        "Offer No": offer_no, "Date": str(off_date), "Customer No": c_no,
-                        "Customer Name": selected_name, "Tax Code": t_code_display,
-                        "Officer": officer, "Grand Total": grand_total
+                    # 1. Chuẩn bị Header Data
+                    header_row = pd.DataFrame([{
+                        "Offer No": offer_no, 
+                        "Date": str(off_date), 
+                        "Customer No": c_no,
+                        "Customer Name": selected_name, 
+                        "Tax Code": t_code_display,
+                        "Officer": officer, 
+                        "Grand Total": grand_total
                     }])
-                    conn.create(spreadsheet=SHEET_URL, worksheet="Offer_Header", data=header_data)
                     
-                    # 2. Lưu Details
-                    details_to_save = edited_df[edited_df["Xóa dòng"] == False].copy()
-                    details_to_save["Offer No"] = offer_no
-                    details_to_save = details_to_save.drop(columns=["No", "Xóa dòng"])
-                    conn.create(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=details_to_save)
+                    # 2. Chuẩn bị Detail Data
+                    details_rows = edited_df[edited_df["Xóa dòng"] == False].copy()
+                    details_rows["Offer No"] = offer_no
+                    details_rows = details_rows.drop(columns=["No", "Xóa dòng"])
                     
-                    st.success("Quotation saved successfully!")
+                    # Ghi dữ liệu bằng cách nối (Append) vào dữ liệu hiện tại
+                    # Đọc dữ liệu cũ -> Nối dữ liệu mới -> Ghi lại toàn bộ (Đây là cách ổn định nhất cho streamlit-gsheets)
+                    try:
+                        existing_header = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Header")
+                        updated_header = pd.concat([existing_header, header_row], ignore_index=True)
+                    except:
+                        updated_header = header_row
+                        
+                    try:
+                        existing_details = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
+                        updated_details = pd.concat([existing_details, details_rows], ignore_index=True)
+                    except:
+                        updated_details = details_rows
+
+                    # Cập nhật lại vào Sheet
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Header", data=updated_header)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_details)
+                    
+                    st.success(f"Quotation {offer_no} saved successfully!")
+                    st.session_state.cart = [] # Xóa giỏ hàng sau khi lưu thành công
                 except Exception as e:
-                    st.error(f"Save failed: {e}")
+                    st.error(f"Lỗi khi lưu dữ liệu: {e}")
 
             if col_save2.button("Print PDF", use_container_width=True):
                 st.info("Feature Coming Soon")
