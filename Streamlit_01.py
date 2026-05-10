@@ -1,192 +1,168 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import re
 from datetime import datetime
 
-# --- CONFIG & STYLING ---
-st.set_page_config(page_title="D&Q Machinery System", layout="wide")
+# --- CẤU HÌNH TRANG ---
+st.set_page_config(page_title="D&Q Spare Part System", layout="wide")
 
-# --- HÀM TRỢ GIÚP ---
-def clean_code(val):
-    if pd.isna(val) or val == "": return ""
-    s = str(val).split('.')[0].strip()
-    return re.sub(r'[^a-zA-Z0-9]', '', s).upper()
+# --- HÀM LOAD DỮ LIỆU ---
+@st.cache_data(ttl=600)
+def load_data():
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    
+    # Đọc tất cả các tab cần thiết
+    df_mst = conn.read(worksheet="Customer_MST")
+    df_contact = conn.read(worksheet="Customer_Contact")
+    df_staff = conn.read(worksheet="Staff")
+    df_machines = conn.read(worksheet="List_of_ machines")
+    df_sp = conn.read(worksheet="SP_List")
+    
+    return df_mst, df_contact, df_staff, df_machines, df_sp
 
-# --- LOAD DATA ---
-@st.cache_data(ttl=60)
-def load_all_data():
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        url = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
+# Load data ban đầu
+try:
+    df_mst, df_contact, df_staff, df_machines, df_sp = load_data()
+except Exception as e:
+    st.error(f"Lỗi kết nối Google Sheets: {e}")
+    st.stop()
+
+# --- KHỞI TẠO SESSION STATE ---
+if 'cart' not in st.session_state:
+    st.session_state.cart = pd.DataFrame(columns=[
+        'Part Number', 'Part Name', 'Qty', 'Unit', 'VAT', 'Unit Price', '% Discount', 'Amount'
+    ])
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "New Offer"
+
+# --- A_1: SIDE MENU ---
+with st.sidebar:
+    st.title("Main Menu")
+    option = st.radio("Select Menu:", ["Spare Part Quotation", "Service Quotation"])
+    if st.button("Refresh"):
+        st.cache_data.clear()
+        st.rerun()
+
+# --- A_2 & B: CHỨC NĂNG CHÍNH ---
+if option == "Spare Part Quotation":
+    # 2 Button điều hướng
+    col_nav1, col_nav2 = st.columns([1, 4])
+    if col_nav1.button("New Spare Part Offer"):
+        st.session_state.current_page = "New Offer"
+    if col_nav2.button("Order Management"):
+        st.session_state.current_page = "Management"
+
+    if st.session_state.current_page == "New Offer":
+        # --- B_1: NEW SPARE PART OFFER (HEADER) ---
         
-        df_sp = conn.read(spreadsheet=url, worksheet="SP_List")
-        df_mst = conn.read(spreadsheet=url, worksheet="Customer_MST")
-        df_con = conn.read(spreadsheet=url, worksheet="Customer_Contact")
-        df_mac = conn.read(spreadsheet=url, worksheet="List_of_ machines")
-        df_staff = conn.read(spreadsheet=url, worksheet="Staff")
+        # 1. Customer Name (Col C - Index 2)
+        cust_names = df_mst.iloc[:, 2].dropna().unique().tolist()
+        selected_cust = st.selectbox("Customer Name:", options=cust_names)
         
-        return df_sp, df_mst, df_con, df_mac, df_staff
-    except Exception as e:
-        st.error(f"❌ Lỗi kết nối dữ liệu: {e}")
-        return [None] * 5
+        # Lấy row dữ liệu khách hàng được chọn
+        cust_info = df_mst[df_mst.iloc[:, 2] == selected_cust].iloc[0]
+        
+        # 2. Customer No (Col B - Index 1) - Show as string
+        cust_no = str(cust_info.iloc[1]).split('.')[0]
+        st.text(f"Customer No: {cust_no}")
+        
+        # 3. Tax Code (Col F - Index 5) - Show as string
+        tax_code = str(cust_info.iloc[5])
+        st.text(f"Tax Code: {tax_code}")
+        
+        # 4. Address (Col E - Index 4)
+        address = str(cust_info.iloc[4])
+        st.text(f"Address: {address}")
+        
+        # 5. Contact Person (Tab Customer_Contact/Col H - Index 7 lọc theo Cust No ở Col B - Index 1)
+        # Ép kiểu string để so khớp chính xác
+        contacts_filtered = df_contact[df_contact.iloc[:, 1].astype(str).str.contains(cust_no)]
+        contact_options = contacts_filtered.iloc[:, 7].dropna().tolist() if not contacts_filtered.empty else ["No contact found"]
+        st.selectbox("Contact Person:", options=contact_options)
+        
+        # 6. Officer (Tab Staff/Col B - Index 1)
+        staff_options = df_staff.iloc[:, 1].dropna().tolist()
+        st.selectbox("Officer:", options=staff_options)
+        
+        # 7. Machine Number (Tab List_of_machines/Col O - Index 14 lọc theo Cust No ở Col B - Index 1)
+        machines_filtered = df_machines[df_machines.iloc[:, 1].astype(str).str.contains(cust_no)]
+        machine_options = machines_filtered.iloc[:, 14].dropna().tolist() if not machines_filtered.empty else ["No machine found"]
+        st.selectbox("Machine Number:", options=machine_options)
+        
+        # 8. Offer Date
+        offer_date = st.date_input("Offer Date:", value=datetime.now())
+        
+        # 9. Offer No (UI key in)
+        default_offer_no = f"{offer_date.year}-{offer_date.month:02d}-0001"
+        st.text_input("Offer No:", value=default_offer_no)
 
-def main():
-    df_sp, df_mst, df_con, df_mac, df_staff = load_all_data()
-    if df_mst is None: return
+        # Đường kẻ phân cách
+        st.markdown("---")
 
-    # --- A_1: SIDE MENU ---
-    with st.sidebar:
-        st.title("Menu Chính")
-        menu_selection = st.radio("Lựa chọn:", ["Spare Part Quotation", "Service Quotation"])
-        if st.button("🔄 Refresh", use_container_width=True):
-            st.cache_data.clear()
+        # --- OFFER DESCRIPTIONS ---
+        st.subheader("Search Part Number")
+        search_input = st.text_input("Input Part Number(s) separated by ';'", placeholder="2024956492;2031956280")
+        
+        col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+        add_to_cart = col_btn1.button("Add to Cart")
+        delete_cart = col_btn2.button("Delete Cart")
+
+        if delete_cart:
+            st.session_state.cart = pd.DataFrame(columns=st.session_state.cart.columns)
             st.rerun()
 
-    # Khởi tạo Session State cho giỏ hàng
-    if 'cart' not in st.session_state: st.session_state.cart = []
-    if 'sub_page' not in st.session_state: st.session_state.sub_page = "New Offer"
-
-    # --- A_2: SPARE PART QUOTATION PAGE ---
-    if menu_selection == "Spare Part Quotation":
-        col_btn1, col_btn2, _ = st.columns([1.5, 1.5, 4])
-        if col_btn1.button("➕ New Spare Part Offer", use_container_width=True):
-            st.session_state.sub_page = "New Offer"
-        if col_btn2.button("🔍 Order Management", use_container_width=True):
-            st.session_state.sub_page = "Management"
-
-        st.divider()
-
-        # --- B_FUNCTIONS: NEW SPARE PART OFFER ---
-        if st.session_state.sub_page == "New Offer":
-            # 1. Header Information
-            with st.container():
-                r1_c1, r1_c2 = st.columns(2)
-                with r1_c1:
-                    # Customer Name (Col C - index 2)
-                    cust_list = df_mst.iloc[:, 2].dropna().unique().tolist()
-                    cust_name = st.selectbox("🎯 Customer Name:", options=cust_list)
-                    
-                    # Lấy thông tin tương ứng từ Customer_MST
-                    cust_row = df_mst[df_mst.iloc[:, 2] == cust_name].iloc[0]
-                    
-                    # Customer No (Col B - index 1)
-                    cust_no = str(cust_row.iloc[1]).split('.')[0]
-                    st.text_input("🆔 Customer No:", value=cust_no, disabled=True)
-                    
-                    # Tax Code (Col F - index 5)
-                    tax_code = str(cust_row.iloc[5])
-                    st.text_input("🧾 Tax Code:", value=tax_code, disabled=True)
-
-                with r1_c2:
-                    # Address (Col E - index 4)
-                    address = str(cust_row.iloc[4])
-                    st.text_area("📍 Address:", value=address, height=68, disabled=True)
-                    
-                    # Contact Person (Lọc từ tab Customer_Contact Col H dựa trên Customer No)
-                    # Giả định Customer No ở tab Contact nằm ở Col B (index 1)
-                    f_conts = df_con[df_con.iloc[:, 1].astype(str).str.contains(cust_no)] if not df_con.empty else pd.DataFrame()
-                    contact_list = f_conts.iloc[:, 7].dropna().unique().tolist() if not f_conts.empty else ["N/A"]
-                    st.selectbox("👤 Contact Person:", options=contact_list)
-
-                r2_c1, r2_c2, r2_c3 = st.columns(3)
-                with r2_c1:
-                    # Officer (Staff Col B - index 1)
-                    staff_list = df_staff.iloc[:, 1].dropna().tolist()
-                    st.selectbox("✍️ Officer:", options=staff_list)
-                with r2_c2:
-                    # Machine Number (Lọc từ List_of_machines Col O dựa trên Customer No)
-                    f_macs = df_mac[df_mac.iloc[:, 1].astype(str).str.contains(cust_no)] if not df_mac.empty else pd.DataFrame()
-                    machine_list = f_macs.iloc[:, 14].dropna().unique().tolist() if not f_macs.empty else ["N/A"]
-                    st.selectbox("🤖 Machine Number:", options=machine_list)
-                with r2_c3:
-                    offer_date = st.date_input("📅 Offer Date:", value=datetime.now())
-                
-                # Offer No
-                default_offer_no = f"{offer_date.year}-{offer_date.month:02d}-0001"
-                st.text_input("📄 Offer No:", value=default_offer_no)
-
-            st.markdown("---") # Line to separate Header and Description
-
-            # 2. Search & Add to Cart
-            st.subheader("🔍 Search Part Number")
-            search_input = st.text_input("Nhập Part Number (cách nhau bởi dấu ';'):", placeholder="2024956492;2031956280")
+        if add_to_cart and search_input:
+            input_list = [x.strip() for x in search_input.split(";")]
             
-            col_act1, col_act2, _ = st.columns([1, 1, 4])
-            add_btn = col_act1.button("🛒 Add to Cart", type="primary", use_container_width=True)
-            del_cart_btn = col_act2.button("🗑️ Delete Cart", use_container_width=True)
-
-            if del_cart_btn:
-                st.session_state.cart = []
-                st.rerun()
-
-            if add_btn and search_input:
-                codes = [c.strip() for c in search_input.split(';') if c.strip()]
-                df_sp['CLEAN_PN'] = df_sp.iloc[:, 1].apply(clean_code) # Col B
+            for pn in input_list:
+                # Tìm PN trong SP_List/Col B (Index 1)
+                # Đảm bảo PN là string để tìm kiếm
+                match = df_sp[df_sp.iloc[:, 1].astype(str).str.contains(pn, na=False)]
                 
-                for code in codes:
-                    match = df_sp[df_sp['CLEAN_PN'] == clean_code(code)]
-                    if not match.empty:
-                        item = match.iloc[0]
-                        # Check trùng trong giỏ
-                        if not any(d['Part Number'] == item.iloc[1] for d in st.session_state.cart):
-                            st.session_state.cart.append({
-                                "Part Number": item.iloc[1],    # Col B
-                                "Part Name": item.iloc[4],      # Col E
-                                "Qty": 1,                       # Default 1
-                                "Unit": item.iloc[7],           # Col H
-                                "VAT": item.iloc[12],            # Col M
-                                "Unit Price": float(item.iloc[18]) if not pd.isna(item.iloc[18]) else 0.0, # Col S
-                                "% Discount": 0.0,
-                                "Delete": False
-                            })
-                    else:
-                        st.error(f"⚠️ Part Number {code} is not available")
-                st.rerun()
+                if not match.empty:
+                    res = match.iloc[0]
+                    # Tạo hàng mới
+                    new_item = {
+                        'Part Number': str(res.iloc[1]), # Col B
+                        'Part Name': res.iloc[4],       # Col E
+                        'Qty': 1,
+                        'Unit': res.iloc[7],            # Col H
+                        'VAT': res.iloc[12],            # Col M
+                        'Unit Price': float(res.iloc[18]) if pd.notnull(res.iloc[18]) else 0.0, # Col S
+                        '% Discount': 0.0,
+                        'Amount': 0.0
+                    }
+                    # Append vào session state
+                    st.session_state.cart = pd.concat([st.session_state.cart, pd.DataFrame([new_item])], ignore_index=True)
+                else:
+                    st.error(f"Part Number {pn} is not available")
+            st.rerun()
 
-            # 3. Table Description
-            if st.session_state.cart:
-                df_cart = pd.DataFrame(st.session_state.cart)
-                # Tính toán Amount: (Unit Price * Qty) * (1 - Discount/100)
-                # Lưu ý: Công thức của bạn là (Col 7 * Col 8)/100 có vẻ là tính số tiền giảm, 
-                # thường Amount sẽ là giá sau giảm. Mình sẽ để cột Amount là giá sau giảm:
-                df_cart['Amount'] = (df_cart['Unit Price'] * df_cart['Qty']) * (1 - df_cart['% Discount']/100)
-                
-                # Hiển thị bảng cho phép chỉnh sửa Qty và Discount
-                edited_df = st.data_editor(
-                    df_cart,
-                    column_config={
-                        "No": st.column_config.NumberColumn(disabled=True),
-                        "Part Number": st.column_config.TextColumn(disabled=True),
-                        "Part Name": st.column_config.TextColumn(disabled=True),
-                        "Unit": st.column_config.TextColumn(disabled=True),
-                        "VAT": st.column_config.NumberColumn(disabled=True),
-                        "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True),
-                        "Qty": st.column_config.NumberColumn(min_value=1),
-                        "% Discount": st.column_config.NumberColumn(min_value=0, max_value=100),
-                        "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
-                        "Delete": st.column_config.CheckboxColumn("Xoá")
-                    },
-                    use_container_width=True,
-                    hide_index=True,
-                    key="editor"
-                )
+        # --- HIỂN THỊ GIỎ HÀNG ---
+        if not st.session_state.cart.empty:
+            # Cho phép sửa Qty và % Discount trực tiếp
+            edited_df = st.data_editor(
+                st.session_state.cart,
+                column_config={
+                    "Part Number": st.column_config.TextColumn(disabled=True),
+                    "Part Name": st.column_config.TextColumn(disabled=True),
+                    "Unit": st.column_config.TextColumn(disabled=True),
+                    "VAT": st.column_config.NumberColumn(disabled=True),
+                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True),
+                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True),
+                },
+                num_rows="dynamic",
+                use_container_width=True,
+                key="cart_editor"
+            )
 
-                # Xử lý cập nhật số lượng/giảm giá hoặc xoá dòng
-                if not edited_df.equals(df_cart):
-                    new_cart = []
-                    for i, row in edited_df.iterrows():
-                        if not row['Delete']:
-                            # Cập nhật giá trị mới từ editor
-                            row_dict = row.to_dict()
-                            del row_dict['Delete']
-                            del row_dict['Amount'] # Để tính lại ở vòng render sau
-                            new_cart.append(row_dict)
-                    st.session_state.cart = new_cart
-                    st.rerun()
+            # Tính toán lại Amount cho từng dòng: (Price * Qty * Discount) / 100 theo yêu cầu của bạn
+            # Lưu ý: Nếu bạn muốn tính "Giá sau chiết khấu" thì công thức sẽ khác, 
+            # nhưng đây là công thức bạn yêu cầu: (Col 7 * Col 8) / 100
+            edited_df['Amount'] = (edited_df['Unit Price'] * edited_df['% Discount']) / 100
+            
+            # Cập nhật lại session state
+            st.session_state.cart = edited_df
 
-        elif st.session_state.sub_page == "Management":
-            st.info("Trang quản lý đơn hàng đang được cập nhật...")
-
-if __name__ == "__main__":
-    main()
+    elif st.session_state.current_page == "Management":
+        st.write("Management Page (Coming Soon)")
