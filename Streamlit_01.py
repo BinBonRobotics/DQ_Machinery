@@ -34,6 +34,7 @@ def main():
     if 'cart' not in st.session_state: st.session_state.cart = []
     if 'sub_action' not in st.session_state: st.session_state.sub_action = "create"
     if 'ship_cost' not in st.session_state: st.session_state.ship_cost = 0.0
+    if 'last_not_found' not in st.session_state: st.session_state.last_not_found = []
 
     # --- 1. SIDEBAR ---
     st.sidebar.title("⚙️ Cấu hình")
@@ -56,8 +57,7 @@ def main():
 
         # --- 3. TRANG TẠO BÁO GIÁ ---
         if st.session_state.sub_action == "create":
-            # --- 3_1 & B_2: DROP MENUS & NEW FEATURES ---
-            # Hàng 1: Khách hàng và Thông tin chung
+            # --- 3_1 & B_2: DROP MENUS ---
             r1c1, r1c2 = st.columns(2)
             with r1c1:
                 cust_options = sorted(df_mst['Customer name'].dropna().unique())
@@ -71,7 +71,7 @@ def main():
                 st.selectbox("👤 Contact Person:", options=list_conts if list_conts else ["N/A"])
                 st.markdown(f"📍 **Địa chỉ:** {str(row_mst.get('Địa chỉ', '-'))}")
 
-            # Hàng 2: Machine, Staff, Date, No (Làm ngắn lại bằng cách chia 4 cột)
+            # Hàng thông tin bổ sung (ngắn gọn)
             r2c1, r2c2, r2c3, r2c4 = st.columns(4)
             with r2c1:
                 f_macs = df_mac[df_mac.iloc[:, 1].astype(str).str.contains(clean_code(c_no))] if df_mac is not None else pd.DataFrame()
@@ -81,29 +81,31 @@ def main():
                 list_staff = df_staff['Name'].dropna().unique().tolist() if (df_staff is not None and 'Name' in df_staff.columns) else ["Admin"]
                 st.selectbox("✍️ Người lập:", options=list_staff)
             with r2c3:
-                # B_2.1: Offer Date
                 offer_date = st.date_input("📅 Offer Date:", value=datetime.now())
             with r2c4:
-                # B_2.2: Offer No (Định nghĩa tự động theo Năm-Tháng-0001)
-                # Lưu ý: Phần số thứ tự sau này sẽ được link với DB, hiện tại để mặc định hiển thị đúng định dạng
                 offer_no_suggest = f"{offer_date.year}-{offer_date.month:02d}-0001"
                 offer_no = st.text_input("🆔 Offer No:", value=offer_no_suggest)
 
             st.divider()
             
-            # --- 3_2: TÌM PART NUMBER & THÊM VÀO GIỎ ---
+            # --- 3_2: TÌM PART NUMBER (ĐÃ KHÔI PHỤC THÔNG BÁO LỖI) ---
             st.subheader("🔍 Tìm Part Number")
             r3c1, r3c2 = st.columns([3, 1])
             with r3c1:
                 input_search = st.text_input("Nhập mã (cách nhau bởi dấu ;):", placeholder="3608080970; 4007010482")
             with r3c2:
-                st.write("##") # Căn chỉnh nút bấm
+                st.write("##")
                 add_btn = st.button("🛒 Thêm vào giỏ hàng", type="primary", use_container_width=True)
+
+            # Hiển thị thông báo nếu không tìm thấy (giữ nguyên yêu cầu 3_2)
+            if st.session_state.last_not_found:
+                st.error(f"❌ Không tìm thấy Part Number: {', '.join(st.session_state.last_not_found)}")
 
             if add_btn and input_search:
                 codes = [clean_code(c) for c in input_search.split(';') if c.strip()]
                 df_sp['CLEAN_PN'] = df_sp['Part number'].apply(clean_code)
-                not_found = []
+                current_not_found = []
+                
                 for code in codes:
                     match = df_sp[df_sp['CLEAN_PN'] == code]
                     if not match.empty:
@@ -114,9 +116,9 @@ def main():
                             "Unit Price": float(item.get('Giá bán', 0)), "%Dist": 0.0, "Xoá": False
                         })
                     else:
-                        not_found.append(code)
-                if not_found:
-                    st.error(f"❌ Không tìm thấy: {', '.join(not_found)}")
+                        current_not_found.append(code)
+                
+                st.session_state.last_not_found = current_not_found # Lưu lại để hiển thị
                 st.rerun()
 
             # --- 3_3: TABLE DANH SÁCH CHI TIẾT ---
@@ -126,7 +128,6 @@ def main():
                 df_cart.insert(0, 'No.', range(1, len(df_cart) + 1))
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
                 
-                # Cột theo thứ tự yêu cầu
                 display_cols = ["No.", "Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Amount", "Xoá"]
                 
                 edited_df = st.data_editor(
@@ -136,12 +137,12 @@ def main():
                         "Part Number": st.column_config.TextColumn(disabled=True),
                         "Part name": st.column_config.TextColumn(disabled=True),
                         "Unit": st.column_config.TextColumn(disabled=True),
-                        "VAT": st.column_config.NumberColumn("VAT", format="%d", disabled=True), # Số nguyên & Disable
+                        "VAT": st.column_config.NumberColumn("VAT", format="%d", disabled=True),
                         "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True),
                         "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
-                        "Qty": st.column_config.NumberColumn(width=60, min_value=1), # Cho phép sửa
-                        "%Dist": st.column_config.NumberColumn(width=80, format="%d%%"), # Cho phép sửa
-                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50) # Cột xoá cuối
+                        "Qty": st.column_config.NumberColumn(width=60, min_value=1),
+                        "%Dist": st.column_config.NumberColumn(width=80, format="%d%%"),
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50)
                     },
                     use_container_width=True, hide_index=True, key="cart_editor"
                 )
@@ -153,7 +154,9 @@ def main():
                             item = st.session_state.cart[i].copy()
                             item['Qty'] = row['Qty']; item['%Dist'] = row['%Dist']
                             new_cart.append(item)
-                    st.session_state.cart = new_cart; st.rerun()
+                    st.session_state.cart = new_cart
+                    st.session_state.last_not_found = [] # Xoá thông báo lỗi khi cập nhật giỏ
+                    st.rerun()
 
                 # --- 3_4: TÍNH NĂNG TỔNG KẾT BÁO GIÁ ---
                 st.divider()
@@ -162,7 +165,6 @@ def main():
                 _, col_calc = st.columns([2, 1.5])
                 with col_calc:
                     st.markdown("#### Tổng kết báo giá")
-                    # Nhập bên ngoài
                     ship_val = st.number_input("Nhập Shipment Cost (VND):", value=float(st.session_state.ship_cost), step=1000.0, format="%.0f")
                     if ship_val != st.session_state.ship_cost:
                         st.session_state.ship_cost = ship_val; st.rerun()
@@ -171,7 +173,6 @@ def main():
                     vat_calc = sub_total * 0.08
                     grand_total = sub_total + vat_calc
 
-                    # Đưa vào table thẳng hàng & disable
                     summary_data = {
                         "Nội dung": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT (8%)", "GRAND TOTAL"],
                         "Số tiền (VND)": [f"{total_amt:,.0f}", f"{st.session_state.ship_cost:,.0f}", 
@@ -185,15 +186,10 @@ def main():
         # --- 4: ORDER MANAGEMENT ---
         elif st.session_state.sub_action == "search":
             st.subheader("🔍 Order Management")
-            # 4_1, 4_2, 4_3: Ba tab con
             tab_q, tab_t, tab_r = st.tabs(["📄 Quotations", "🚚 Offers_Tracking", "📊 SP_Report"])
-            
-            with tab_q:
-                st.info("Nơi lưu trữ các báo giá từ trang 'Tạo Báo Giá' (Database link required)")
-            with tab_t:
-                st.info("Theo dõi đơn hàng đã xác nhận")
-            with tab_r:
-                st.info("Báo cáo số liệu")
+            with tab_q: st.info("Lưu trữ báo giá")
+            with tab_t: st.info("Theo dõi đơn hàng")
+            with tab_r: st.info("Báo cáo")
 
     elif menu_selection == "🗂️ Master Data":
         st.dataframe(df_sp, use_container_width=True)
