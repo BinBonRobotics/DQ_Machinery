@@ -58,13 +58,16 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # --- FIX TAX CODE: Hiển thị đúng định dạng chuỗi số ---
+        # --- FIX TAX CODE: Luôn đảm bảo 10 ký tự ---
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
         else:
-            # Chuyển sang string và loại bỏ phần thập phân .0 nếu có
-            t_code_display = "{:.0f}".format(t_val) if isinstance(t_val, (int, float)) else str(t_val)
+            # Chuyển thành số nguyên để mất .0, sau đó thành chuỗi, và thêm '0' vào đầu cho đủ 10 số
+            try:
+                t_code_display = str(int(float(t_val))).zfill(10)
+            except:
+                t_code_display = str(t_val).split('.')[0].zfill(10)
         st.text_input("Tax Code:", value=t_code_display, disabled=True)
         
         st.text_area("Address:", value=str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else "", height=70, disabled=True)
@@ -85,7 +88,6 @@ if df_mst is not None and option == "Spare Part Quotation":
         st.markdown("---")
         st.subheader("Offer Descriptions")
 
-        # --- Ô TÌM KIẾM ---
         search_input = st.text_input("Search Part Number:", placeholder="2024956492;2031956280")
         
         if st.session_state.search_error:
@@ -130,14 +132,13 @@ if df_mst is not None and option == "Spare Part Quotation":
         # --- BẢNG DANH SÁCH LINH KIỆN ---
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
-            # Tính Amount và ép kiểu Int để hiện dấu phẩy chuẩn
             df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Distcount"] / 100)).astype(int)
             df_cart["Unit Price"] = df_cart["Unit Price"].astype(int)
             
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa dòng"] = False
 
-            # Dùng format="%d" kết hợp với kiểu dữ liệu int sẽ tự động có dấu phẩy phân cách
+            # Dùng format="%,d" để ép Streamlit hiện dấu phẩy phân cách phần ngàn
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
@@ -147,9 +148,9 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "Qty": st.column_config.NumberColumn(min_value=1),
                     "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
-                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True),
+                    "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True),
                     "% Distcount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
-                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True),
+                    "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
                     "Xóa dòng": st.column_config.CheckboxColumn()
                 },
                 hide_index=True,
@@ -181,7 +182,6 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "Value": [total_amount, shipment, sub_total, total_vat, grand_total]
                 }
                 df_summary = pd.DataFrame(summary_data)
-                # Format hiển thị bảng tổng kết có dấu phẩy
                 st.table(df_summary.style.format({"Value": "{:,.0f}"}))
 
     elif st.session_state.page_view == "Manage":
