@@ -57,7 +57,7 @@ def main():
 
         # --- 3. TRANG TẠO BÁO GIÁ ---
         if st.session_state.sub_action == "create":
-            # --- 3_1 & 3_7: DROP MENUS & OFFER INFO ---
+            # --- 3_1 & 3_8: THÔNG TIN HEADER ---
             r1c1, r1c2 = st.columns(2)
             with r1c1:
                 cust_options = sorted(df_mst['Customer name'].dropna().unique())
@@ -87,11 +87,11 @@ def main():
 
             st.divider()
             
-            # --- 3_2 & 3_3: TÌM PART NUMBER & NÚT BẤM CỐ ĐỊNH PHÍA DƯỚI ---
+            # --- 3_2 & 3_3: TÌM PART NUMBER & NÚT BẤM ---
             st.subheader("🔍 Tìm Part Number")
             input_search = st.text_input("Nhập mã (cách nhau bởi dấu ;):", placeholder="3608080970; 4007010482")
             
-            # Nút bấm nằm ngay dưới ô nhập liệu (không chia cột)
+            # Nút thêm vào giỏ hàng cố định phía dưới ô nhập
             add_btn = st.button("🛒 Thêm vào giỏ hàng", type="primary")
 
             if st.session_state.last_not_found:
@@ -143,6 +143,12 @@ def main():
                     use_container_width=True, hide_index=True, key="cart_editor"
                 )
 
+                # Nút Xoá hết hàng (B_1: Thêm lại tính năng)
+                if st.button("🗑️ Xoá hết hàng", type="secondary"):
+                    st.session_state.cart = []
+                    st.session_state.last_not_found = []
+                    st.rerun()
+
                 if not edited_df.equals(df_cart[display_cols]):
                     new_cart = []
                     for i, row in edited_df.iterrows():
@@ -154,7 +160,7 @@ def main():
                     st.session_state.last_not_found = []
                     st.rerun()
 
-                # --- 3_5: TÍNH NĂNG TỔNG KẾT BÁO GIÁ ---
+                # --- 3_5: TỔNG KẾT BÁO GIÁ ---
                 st.divider()
                 total_amt = df_cart['Amount'].sum()
                 
@@ -176,7 +182,7 @@ def main():
                     }
                     st.table(pd.DataFrame(summary_data))
                 
-                # --- 3_6: NÚT LƯU BÁO GIÁ ---
+                # --- 3_7: NÚT LƯU BÁO GIÁ ---
                 st.button("💾 Lưu Báo Giá", use_container_width=True, type="primary")
 
         # --- 4: ORDER MANAGEMENT ---
