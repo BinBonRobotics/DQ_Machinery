@@ -46,29 +46,37 @@ def main():
     if 'ship_cost' not in st.session_state: st.session_state.ship_cost = 0
     if 'edit_mode_header' not in st.session_state: st.session_state.edit_mode_header = None
 
-    # --- 1. SIDEBAR ---
+    # --- 1. SIDEBAR (CHỈ TỶ GIÁ & LÀM MỚI) ---
     with st.sidebar:
-        st.header("⚙️ Tỷ giá & Hệ thống")
+        st.header("⚙️ Cấu hình")
         ty_gia = st.number_input("Tỷ giá Euro (VND):", value=31000, step=100)
         if st.button("🔄 Làm mới dữ liệu", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
-        st.divider()
-        st.subheader("📁 Báo Giá Phụ Tùng")
-        if st.button("➕ Tạo báo giá", use_container_width=True):
+
+    # --- 2. GIAO DIỆN CHÍNH: BÁO GIÁ PHỤ TÙNG ---
+    st.title("🛠️ Báo Giá Phụ Tùng")
+    
+    # Hai nút điều hướng nằm ngang ở trên cùng trang chính
+    col_nav1, col_nav2 = st.columns(2)
+    with col_nav1:
+        if st.button("➕ Tạo báo giá", use_container_width=True, type="primary" if st.session_state.menu_action == "Tạo báo giá" else "secondary"):
             st.session_state.menu_action = "Tạo báo giá"
             st.session_state.edit_mode_header = None
             st.session_state.cart = []
             st.rerun()
-        if st.button("🔍 Order Management", use_container_width=True):
+    with col_nav2:
+        if st.button("📂 Order Management", use_container_width=True, type="primary" if st.session_state.menu_action == "Order Management" else "secondary"):
             st.session_state.menu_action = "Order Management"
             st.rerun()
+    
+    st.divider()
 
     # --- 3. TRANG TẠO BÁO GIÁ ---
     if st.session_state.menu_action == "Tạo báo giá":
         edit_h = st.session_state.edit_mode_header
         
-        # 3.1 & 3.10 Thông tin chung
+        # 3.1 & 3.10
         col_id1, col_id2 = st.columns(2)
         with col_id1:
             off_no = st.text_input("🆔 Offer No:", value=edit_h['Offer_No'] if edit_h else f"OFF-{datetime.now().strftime('%Y%m%d%H%M')}")
@@ -102,8 +110,9 @@ def main():
             staff_name = st.selectbox("✍️ Người lập báo giá:", options=list_staff, index=idx_staff)
 
         st.divider()
-        # 3.2 & 3.3 Tìm Part Number
-        search_pn = st.text_input("🔍 Nhập Part Number (ví dụ: 123456; 789012):")
+        # 3.2 Tìm Part Number
+        search_pn = st.text_input("🔍 Nhập Part Number (ngăn cách bởi dấu chấm phẩy ;):")
+        # 3.3 Button thêm luôn dưới ô nhập
         if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
             if search_pn:
                 codes = [clean_code(c) for c in search_pn.split(';') if c.strip()]
@@ -118,10 +127,10 @@ def main():
                             "Unit Price": float(item.get('Giá bán', 0)), "%Dist": 0.0, "Xoá": False
                         })
                     else:
-                        st.error(f"Không tìm thấy Part Number: {code}")
+                        st.error(f"⚠️ Không tìm thấy Part Number: {code}")
                 st.rerun()
 
-        # 3.4 Bảng chi tiết (Table Danh sách chi tiết)
+        # 3.4 & 3.8 & 3.9
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
             df_cart.insert(0, 'No', range(1, len(df_cart) + 1))
@@ -167,15 +176,14 @@ def main():
                 "Giá trị (VND)": st.column_config.NumberColumn(format="%,d", disabled=True)
             }, use_container_width=True, hide_index=True)
 
-            # 3.8 & 3.9 Buttons
-            c1, c2 = st.columns(2)
-            with c1:
+            c_act1, c_act2 = st.columns(2)
+            with c_act1:
                 if st.button("🗑️ Xoá hết hàng", use_container_width=True):
                     st.session_state.cart = []
                     st.rerun()
-            with c2:
+            with c_act2:
                 if st.button("💾 Lưu Báo Giá", use_container_width=True, type="primary"):
-                    # Xử lý ghi đè Offer_Header
+                    # Ghi đè logic Header
                     df_h_new = df_h_stored[df_h_stored['Offer_No'].astype(str) != str(off_no)]
                     h_row = {
                         "Offer_No": str(off_no), "Offer_Date": off_date.strftime("%Y-%m-%d"),
@@ -186,7 +194,7 @@ def main():
                     }
                     df_h_new = pd.concat([df_h_new, pd.DataFrame([h_row])], ignore_index=True)
                     
-                    # Xử lý ghi đè Offer_Details
+                    # Ghi đè logic Details
                     df_d_new = df_d_stored[df_d_stored['Offer_No'].astype(str) != str(off_no)]
                     details = edited_df[~edited_df['Xoá']].copy()
                     details['Offer_No'] = str(off_no)
@@ -198,26 +206,26 @@ def main():
 
                     update_sheet("Offer_Header", df_h_new)
                     update_sheet("Offer_Details", df_d_new)
-                    st.success("✅ Đã lưu báo giá thành công!")
+                    st.success(f"✅ Báo giá {off_no} đã được cập nhật thành công!")
                     st.cache_data.clear()
 
     # --- 4. ORDER MANAGEMENT ---
     elif st.session_state.menu_action == "Order Management":
-        t1, t2, t3 = st.tabs(["📄 Quotation", "🚚 Offers_Tracking", "📊 SP_Report"])
+        tab_q, tab_t, tab_r = st.tabs(["📄 Quotation", "🚚 Offers_Tracking", "📊 SP_Report"])
         
-        with t1:
+        with tab_q:
             st.subheader("Danh sách báo giá đã lưu")
             st.dataframe(df_h_stored, column_config={
                 "Total_Amount": st.column_config.NumberColumn(format="%,d"),
                 "Grand_Total": st.column_config.NumberColumn(format="%,d")
             }, hide_index=True, use_container_width=True)
             
-            sel_off = st.selectbox("🔍 Chọn Offer No để xử lý:", options=[""] + list(df_h_stored['Offer_No'].unique()))
+            sel_off = st.selectbox("🔍 Chọn Offer No để xử lý:", options=[""] + sorted(list(df_h_stored['Offer_No'].astype(str).unique())))
             if sel_off:
-                col_btn1, col_btn2 = st.columns(2)
+                col_m1, col_m2 = st.columns(2)
                 h_row = df_h_stored[df_h_stored['Offer_No'].astype(str) == str(sel_off)].iloc[0]
                 
-                with col_btn1:
+                with col_m1:
                     if st.button("📝 Sửa báo giá này", use_container_width=True):
                         st.session_state.edit_mode_header = h_row.to_dict()
                         st.session_state.ship_cost = h_row['Shipment_Cost']
@@ -229,9 +237,8 @@ def main():
                         st.session_state.menu_action = "Tạo báo giá"
                         st.rerun()
                 
-                with col_btn2:
+                with col_m2:
                     if st.button("✅ Xác nhận báo giá", use_container_width=True, type="primary"):
-                        # Kiểm tra xem đã tồn tại trong tracking chưa
                         if str(sel_off) not in df_tracking['Offer_No'].astype(str).values:
                             new_track = pd.DataFrame([{
                                 "Offer_No": str(sel_off),
@@ -242,20 +249,15 @@ def main():
                             }])
                             df_tr_new = pd.concat([df_tracking, new_track], ignore_index=True)
                             update_sheet("Offer_Tracking", df_tr_new)
-                            st.success(f"🚀 Đã chuyển {sel_off} sang Tracking!")
+                            st.success(f"🚀 Đã chuyển đơn {sel_off} vào danh sách theo dõi!")
                             st.cache_data.clear()
                         else:
-                            st.warning("Đơn hàng này đã được xác nhận trước đó.")
+                            st.warning("⚠️ Đơn hàng này đã tồn tại trong Tracking.")
 
-        with t2:
-            st.subheader("Theo dõi đơn hàng")
-            if not df_tracking.empty:
-                st.dataframe(df_tracking, use_container_width=True, hide_index=True)
-            else:
-                st.info("Chưa có đơn hàng nào trong danh sách theo dõi.")
-
-        with t3:
-            st.info("📊 SP_Report: Tính năng đang được phát triển (Coming Soon)")
+        with tab_t:
+            st.info("🚚 Offers_Tracking: Coming soon")
+        with tab_r:
+            st.info("📊 SP_Report: Coming soon")
 
 if __name__ == "__main__":
     main()
