@@ -3,9 +3,10 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# --- CONFIG ---
+# --- CẤU HÌNH ---
 st.set_page_config(page_title="Spare Part Management", layout="wide")
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0 (Thay link của bạn tại đây)"
+# Thay link Google Sheet của bạn vào đây
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
 
 # --- A_1: SIDEBAR ---
 with st.sidebar:
@@ -16,101 +17,90 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-# --- LOAD DATA ---
+# --- HÀM TẢI DỮ LIỆU AN TOÀN ---
 @st.cache_data(ttl=600)
-def load_all_tabs():
+def load_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
-    # Tải toàn bộ các tab cần thiết
     mst = conn.read(spreadsheet=SHEET_URL, worksheet="Customer_MST")
     contact = conn.read(spreadsheet=SHEET_URL, worksheet="Customer_Contact")
     staff = conn.read(spreadsheet=SHEET_URL, worksheet="Staff")
     machines = conn.read(spreadsheet=SHEET_URL, worksheet="List_of_ machines")
     return mst, contact, staff, machines
 
+# Xử lý lỗi kết nối ban đầu
 try:
-    df_mst, df_contact, df_staff, df_mac = load_all_tabs()
+    df_mst, df_contact, df_staff, df_mac = load_data()
 except Exception as e:
-    st.error(f"Lỗi kết nối Google Sheets: {e}")
+    st.error(f"Không thể kết nối Google Sheets. Vui lòng kiểm tra link hoặc quyền chia sẻ. Lỗi: {e}")
     st.stop()
 
 # --- CHƯƠNG TRÌNH CHÍNH ---
 if menu_option == "Spare Part Quotation":
-    # A_2: 2 Button điều hướng
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        btn_new = st.button("➕ New Spare Part Offer", use_container_width=True)
-    with col_btn2:
-        btn_manage = st.button("📋 Order Management", use_container_width=True)
+    # A_2: Điều hướng
+    c_btn1, c_btn2 = st.columns(2)
+    with c_btn1:
+        if st.button("➕ New Spare Part Offer", use_container_width=True):
+            st.session_state.offer_mode = "new"
+    with c_btn2:
+        if st.button("📋 Order Management", use_container_width=True):
+            st.session_state.offer_mode = "manage"
 
-    # State quản lý tab
     if "offer_mode" not in st.session_state:
         st.session_state.offer_mode = "new"
-    if btn_new: st.session_state.offer_mode = "new"
-    if btn_manage: st.session_state.offer_mode = "manage"
 
-    # B_1: CHỨC NĂNG TẠO OFFER MỚI
+    # B_1: NEW SPARE PART OFFER
     if st.session_state.offer_mode == "new":
-        st.write("### 🆕 New Spare Part Offer")
-        
-        # 1. Customer Name (Col C - Index 2)
-        cust_list = df_mst.iloc[:, 2].dropna().unique()
+        st.subheader("🆕 Create New Spare Part Offer")
+
+        # --- LẤY DỮ LIỆU KHÁCH HÀNG (Sửa lỗi KeyError ở đây) ---
+        # Tìm cột "Customer name" (thường là cột C)
+        col_name = "Customer name" if "Customer name" in df_mst.columns else df_mst.columns[2]
+        col_no = "Customer\nno" if "Customer\nno" in df_mst.columns else df_mst.columns[1]
+        col_tax = "Mã số thuế" if "Mã số thuế" in df_mst.columns else df_mst.columns[5]
+        col_addr = "Địa chỉ" if "Địa chỉ" in df_mst.columns else df_mst.columns[4]
+
+        cust_list = df_mst[col_name].dropna().unique()
         selected_cust = st.selectbox("👤 Customer Name:", options=cust_list)
 
-        # Lấy thông tin từ Customer_MST
-        cust_row = df_mst[df_mst.iloc[:, 2] == selected_cust]
+        # Lọc thông tin khách hàng đã chọn
+        cust_info = df_mst[df_mst[col_name] == selected_cust].iloc[0]
         
-        if not cust_row.empty:
-            # 2. Customer No (Col B - Index 1) - Ép về String để hiển thị và filter
-            cust_no_val = str(cust_row.iloc[0, 1]).split('.')[0] # Bỏ phần .0 nếu là số
-            st.text_input("🆔 Customer No:", value=cust_no_val, disabled=True)
+        # 2, 3, 4: Customer No, Tax Code, Address (Ép kiểu chuỗi)
+        c_no_val = str(cust_info[col_no]).replace('.0', '')
+        st.text_input("🆔 Customer No:", value=c_no_val, disabled=True)
+        st.text_input("📑 Tax Code:", value=str(cust_info[col_tax]), disabled=True)
+        st.text_area("📍 Address:", value=str(cust_info[col_addr]), disabled=True, height=80)
 
-            # 3. Tax Code (Col F - Index 5)
-            tax_code = str(cust_row.iloc[0, 5]) if pd.notnull(cust_row.iloc[0, 5]) else "N/A"
-            st.text_input("📑 Tax Code:", value=tax_code, disabled=True)
+        # Cột chia đôi cho Contact, Officer, Machine...
+        col_left, col_right = st.columns(2)
 
-            # 4. Address (Col E - Index 4)
-            address = str(cust_row.iloc[0, 4])
-            st.text_area("📍 Address:", value=address, disabled=True, height=100)
+        with col_left:
+            # 5. Contact Person (Tab: Customer_Contact)
+            # Dùng cột "Customer contact" (Index 7) và "Customer no" (Index 1) để filter
+            df_contact["Customer\nno"] = df_contact.iloc[:, 1].astype(str).str.replace('.0', '', regex=False)
+            filtered_contacts = df_contact[df_contact["Customer\nno"] == c_no_val].iloc[:, 7].dropna().unique()
+            st.selectbox("📞 Contact Person:", options=filtered_contacts if len(filtered_contacts) > 0 else ["N/A"])
 
-            # Chia cột cho các drop menu tiếp theo
-            c1, c2 = st.columns(2)
+            # 6. Officer (Tab: Staff, Cột B - Index 1)
+            staff_list = df_staff.iloc[:, 1].dropna().unique()
+            st.selectbox("👨‍💼 Officer:", options=staff_list)
 
-            with c1:
-                # 5. Contact Person (Tab: Customer_Contact / Col H - Index 7)
-                # Quan trọng: Filter bằng Customer No (Tab Contact nằm ở Col B - Index 1)
-                # Ép kiểu toàn bộ cột ID của tab Contact về string để so sánh
-                df_contact.iloc[:, 1] = df_contact.iloc[:, 1].astype(str).str.split('.').str[0]
-                
-                filtered_contacts = df_contact[df_contact.iloc[:, 1] == cust_no_val].iloc[:, 7].dropna().unique()
-                st.selectbox("📞 Contact Person:", options=filtered_contacts if len(filtered_contacts) > 0 else ["No contact found"])
+        with col_right:
+            # 7. Machine Number (Tab: List_of_ machines)
+            # Cột B (Index 1) là Customer No, Cột O (Index 14) là Machine No.
+            df_mac.iloc[:, 1] = df_mac.iloc[:, 1].astype(str).str.replace('.0', '', regex=False)
+            filtered_mac = df_mac[df_mac.iloc[:, 1] == c_no_val].iloc[:, 14].dropna().unique()
+            st.selectbox("🤖 Machine Number:", options=filtered_mac if len(filtered_mac) > 0 else ["N/A"])
 
-                # 6. Officer (Tab: Staff / Col B - Index 1)
-                staff_list = df_staff.iloc[:, 1].dropna().unique()
-                st.selectbox("👨‍💼 Officer:", options=staff_list)
+            # 8. Offer Date
+            st.date_input("📅 Offer Date:", value=datetime.now())
 
-            with c2:
-                # 7. Machine Number (Tab: List_of_machines / Col O - Index 14)
-                # Filter bằng Customer No (Tab Machines nằm ở Col B - Index 1)
-                df_mac.iloc[:, 1] = df_mac.iloc[:, 1].astype(str).str.split('.').str[0]
-                
-                filtered_mac = df_mac[df_mac.iloc[:, 1] == cust_no_val].iloc[:, 14].dropna().unique()
-                st.selectbox("🤖 Machine Number:", options=filtered_mac if len(filtered_mac) > 0 else ["No machine found"])
-
-                # 8. Offer Date
-                st.date_input("📅 Offer Date:", value=datetime.now())
-
-            # 9. Offer No (User nhập tay hoặc theo mẫu)
-            curr_year = datetime.now().year
-            curr_month = datetime.now().month
-            default_off_no = f"{curr_year}-{curr_month:02d}-0001"
-            st.text_input("🆔 Offer No:", value=default_off_no)
-
-            st.divider()
-            st.success("Thông tin Header đã sẵn sàng. Bạn có thể tiếp tục thiết kế phần nhập liệu Part Number bên dưới.")
+        # 9. Offer No
+        off_no_default = f"{datetime.now().year}-{datetime.now().month:02d}-0001"
+        st.text_input("🆔 Offer No:", value=off_no_default)
 
     elif st.session_state.offer_mode == "manage":
-        st.info("Trang Order Management đang được cập nhật...")
+        st.info("Trang Quản lý đơn hàng (Đang phát triển)")
 
 else:
-    st.title("🛠️ Service Quotation")
-    st.write("Tính năng này hiện chưa có yêu cầu chi tiết.")
+    st.write("### Service Quotation - Coming Soon")
