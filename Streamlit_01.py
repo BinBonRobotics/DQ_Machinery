@@ -6,7 +6,7 @@ from datetime import datetime
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(layout="wide", page_title="Quotation System")
 
-# URL Google Sheet của bạn
+# URL Google Sheet
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8/edit#gid=903775380"
 
 # --- 2. HÀM LOAD DỮ LIỆU ---
@@ -21,12 +21,11 @@ def load_data():
         sp = conn.read(spreadsheet=SHEET_URL, worksheet="SP_List").dropna(how='all')
         return mst, contact, staff, machines, sp
     except Exception as e:
-        st.error(f"Lỗi kết nối dữ liệu: {e}")
+        st.error(f"Lỗi kết nối Sheet: {e}")
         return None, None, None, None, None
 
 df_mst, df_contact, df_staff, df_machines, df_sp = load_data()
 
-# Khởi tạo Session State
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'page_view' not in st.session_state: st.session_state.page_view = "New"
 
@@ -52,36 +51,20 @@ if df_mst is not None and option == "Spare Part Quotation":
         selected_name = st.selectbox("Customer Name:", options=names)
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
         
+        # Xử lý Customer No & Tax Code sạch sẽ
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # Tax Code: Xóa .0 và giữ số 0 đầu
         t_val = cust_row.iloc[5]
         t_code = str(t_val).split('.')[0].strip() if not pd.isna(t_val) else ""
         if len(t_code) == 9: t_code = "0" + t_code
         st.text_input("Tax Code:", value=t_code, disabled=True)
         
-        addr = str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else ""
-        st.text_area("Address:", value=addr, height=70, disabled=True)
+        st.text_area("Address:", value=str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else "", height=70, disabled=True)
         
-        f_contact = df_contact[df_contact.iloc[:, 1].astype(str).str.contains(c_no)]
-        contact_list = f_contact.iloc[:, 7].dropna().tolist() if not f_contact.empty else ["N/A"]
-        st.selectbox("Contact Person:", options=contact_list)
-        
-        officer_list = df_staff.iloc[:, 1].dropna().tolist()
-        st.selectbox("Officer:", options=officer_list)
-        
-        f_machines = df_machines[df_machines.iloc[:, 1].astype(str).str.contains(c_no)]
-        machine_list = f_machines.iloc[:, 14].dropna().tolist() if not f_machines.empty else ["N/A"]
-        st.selectbox("Machine Number:", options=machine_list)
-        
-        off_date = st.date_input("Offer Date:", value=datetime.now())
-        st.text_input("Offer No:", value=f"{off_date.year}-{off_date.month:02d}-0001")
-
+        # --- B_2: OFFER DESCRIPTIONS ---
         st.markdown("---")
         st.subheader("Offer Descriptions")
-
-        # --- B_2: OFFER DESCRIPTIONS ---
         search_input = st.text_input("Search Part Number:", placeholder="2024956492;2031956280")
         
         col_act1, col_act2, _ = st.columns([1.5, 1.5, 6])
@@ -89,21 +72,18 @@ if df_mst is not None and option == "Spare Part Quotation":
         if col_act1.button("Add to Cart", type="primary", use_container_width=True):
             if search_input:
                 codes = [c.strip() for c in search_input.split(';')]
+                not_found = []
                 for code in codes:
                     match = df_sp[df_sp.iloc[:, 1].astype(str).str.strip() == code]
                     if not match.empty:
                         item = match.iloc[0]
-                        
-                        # XỬ LÝ VAT TRỐNG (None -> 0)
+                        # Fix VAT hiển thị: 0.08 -> 8
                         raw_vat = item.iloc[12]
-                        if pd.isna(raw_vat):
-                            display_vat = 0
-                        else:
-                            # Nếu là 0.08 thì thành 8, nếu là 8 thì giữ nguyên 8
+                        display_vat = 0
+                        if not pd.isna(raw_vat):
                             try:
                                 display_vat = int(float(raw_vat) * 100) if float(raw_vat) < 1 else int(float(raw_vat))
-                            except:
-                                display_vat = 0
+                            except: display_vat = 0
                         
                         st.session_state.cart.append({
                             "Part Number": str(item.iloc[1]),
@@ -115,30 +95,29 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "% Distcount": 0
                         })
                     else:
-                        st.warning(f"Part Number {code} không tồn tại")
-                st.rerun()
-
-        if col_act2.button("Delete Cart", use_container_width=True):
-            st.session_state.cart = []
-            st.rerun()
+                        not_found.append(code)
+                
+                # Thông báo nếu không tìm thấy mã Part
+                if not_found:
+                    st.error(f"Không tìm thấy Part: {', '.join(not_found)}")
+                else:
+                    st.rerun()
 
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
             
-            # CÔNG THỨC: Amount = Unit Price * %Discount * Qty / 100
-            df_cart["Amount"] = (df_cart["Unit Price"] * df_cart["% Distcount"] * df_cart["Qty"]) / 100
+            # CÔNG THỨC MỚI: Tính tổng rồi trừ đi giảm giá
+            # Nếu % Distcount = 0 thì Amount = Qty * Unit Price
+            df_cart["Amount"] = df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Distcount"]/100)
             
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa"] = False
 
+            # Hiển thị số tiền có dấu phẩy phân cách hàng ngàn
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
                     "No": st.column_config.NumberColumn(disabled=True),
-                    "Part Number": st.column_config.TextColumn(disabled=True),
-                    "Part Nname": st.column_config.TextColumn(disabled=True),
-                    "Qty": st.column_config.NumberColumn(min_value=1, step=1),
-                    "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "% Distcount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
@@ -154,6 +133,3 @@ if df_mst is not None and option == "Spare Part Quotation":
                 new_cart = edited_df[edited_df["Xóa"] == False].drop(columns=["No", "Amount", "Xóa"]).to_dict('records')
                 st.session_state.cart = new_cart
                 st.rerun()
-
-    elif st.session_state.page_view == "Manage":
-        st.info("Trang Order Management")
