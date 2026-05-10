@@ -51,7 +51,6 @@ if df_mst is not None and option == "Spare Part Quotation":
         selected_name = st.selectbox("Customer Name:", options=names)
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
         
-        # Xử lý Customer No & Tax Code sạch sẽ
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
@@ -65,7 +64,7 @@ if df_mst is not None and option == "Spare Part Quotation":
         # --- B_2: OFFER DESCRIPTIONS ---
         st.markdown("---")
         st.subheader("Offer Descriptions")
-        search_input = st.text_input("Search Part Number:", placeholder="2024956492;2031956280")
+        search_input = st.text_input("Search Part Number:", placeholder="Nhập mã, ví dụ: 2024956492;3202181000")
         
         col_act1, col_act2, _ = st.columns([1.5, 1.5, 6])
         
@@ -77,10 +76,11 @@ if df_mst is not None and option == "Spare Part Quotation":
                     match = df_sp[df_sp.iloc[:, 1].astype(str).str.strip() == code]
                     if not match.empty:
                         item = match.iloc[0]
-                        # Fix VAT hiển thị: 0.08 -> 8
                         raw_vat = item.iloc[12]
-                        display_vat = 0
-                        if not pd.isna(raw_vat):
+                        # Xử lý VAT trống hoặc 0.08
+                        if pd.isna(raw_vat) or raw_vat == "None":
+                            display_vat = 0
+                        else:
                             try:
                                 display_vat = int(float(raw_vat) * 100) if float(raw_vat) < 1 else int(float(raw_vat))
                             except: display_vat = 0
@@ -97,39 +97,49 @@ if df_mst is not None and option == "Spare Part Quotation":
                     else:
                         not_found.append(code)
                 
-                # Thông báo nếu không tìm thấy mã Part
                 if not_found:
                     st.error(f"Không tìm thấy Part: {', '.join(not_found)}")
-                else:
-                    st.rerun()
+                st.rerun()
+
+        # Nút Xóa giỏ hàng (Đã khôi phục)
+        if col_act2.button("Delete Cart", use_container_width=True):
+            st.session_state.cart = []
+            st.rerun()
 
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
             
-            # CÔNG THỨC MỚI: Tính tổng rồi trừ đi giảm giá
-            # Nếu % Distcount = 0 thì Amount = Qty * Unit Price
+            # CÔNG THỨC: Amount = (Qty * Price) * (1 - Discount/100)
             df_cart["Amount"] = df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Distcount"]/100)
             
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa"] = False
 
-            # Hiển thị số tiền có dấu phẩy phân cách hàng ngàn
+            # Cấu hình bảng: Chỉ cho edit Qty, % Distcount và Xóa
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
                     "No": st.column_config.NumberColumn(disabled=True),
+                    "Part Number": st.column_config.TextColumn(disabled=True),
+                    "Part Nname": st.column_config.TextColumn(disabled=True),
+                    "Qty": st.column_config.NumberColumn(min_value=1, step=1, required=True),
+                    "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "% Distcount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
                     "Amount": st.column_config.NumberColumn(format="%d", disabled=True), 
-                    "Xóa": st.column_config.CheckboxColumn()
+                    "Xóa": st.column_config.CheckboxColumn(label="Xóa")
                 },
                 hide_index=True,
                 use_container_width=True,
                 key="editor"
             )
 
+            # Xử lý cập nhật giỏ hàng khi người dùng thao tác trên bảng
             if not edited_df.equals(df_cart):
                 new_cart = edited_df[edited_df["Xóa"] == False].drop(columns=["No", "Amount", "Xóa"]).to_dict('records')
                 st.session_state.cart = new_cart
                 st.rerun()
+
+    elif st.session_state.page_view == "Manage":
+        st.info("Trang Order Management")
