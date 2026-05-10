@@ -30,6 +30,7 @@ df_mst, df_contact, df_staff, df_machines, df_sp = load_data()
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'page_view' not in st.session_state: st.session_state.page_view = "New"
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
+if 'shipment_cost' not in st.session_state: st.session_state.shipment_cost = 0
 
 # --- 3. SIDE MENU ---
 with st.sidebar:
@@ -53,7 +54,6 @@ if df_mst is not None and option == "Spare Part Quotation":
         selected_name = st.selectbox("Customer Name:", options=names)
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
         
-        # Hiển thị thông tin khách hàng (đã convert sang string)
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
@@ -63,7 +63,6 @@ if df_mst is not None and option == "Spare Part Quotation":
         
         st.text_area("Address:", value=str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else "", height=70, disabled=True)
         
-        # Dropdown phụ thuộc Customer No
         f_contact = df_contact[df_contact.iloc[:, 1].astype(str).str.contains(c_no)]
         contact_list = f_contact.iloc[:, 7].dropna().tolist() if not f_contact.empty else ["N/A"]
         st.selectbox("Contact Person:", options=contact_list)
@@ -83,7 +82,6 @@ if df_mst is not None and option == "Spare Part Quotation":
         # --- Ô TÌM KIẾM ---
         search_input = st.text_input("Search Part Number:", placeholder="2024956492;2031956280")
         
-        # Hiển thị thông báo lỗi nếu có
         if st.session_state.search_error:
             st.error(st.session_state.search_error)
 
@@ -97,7 +95,6 @@ if df_mst is not None and option == "Spare Part Quotation":
                     match = df_sp[df_sp.iloc[:, 1].astype(str).str.strip() == code]
                     if not match.empty:
                         item = match.iloc[0]
-                        # Xử lý VAT
                         raw_vat = item.iloc[12]
                         display_vat = 0
                         if not pd.isna(raw_vat):
@@ -117,29 +114,24 @@ if df_mst is not None and option == "Spare Part Quotation":
                     else:
                         not_found.append(code)
                 
-                if not_found:
-                    st.session_state.search_error = f"Part Number {', '.join(not_found)} is not available"
-                else:
-                    st.session_state.search_error = "" # Xóa lỗi nếu tìm thấy hết
+                st.session_state.search_error = f"Part Number {', '.join(not_found)} is not available" if not_found else ""
                 st.rerun()
 
         if col_act2.button("Delete Cart", use_container_width=True):
             st.session_state.cart = []
             st.session_state.search_error = ""
+            st.session_state.shipment_cost = 0
             st.rerun()
 
-        # --- BẢNG HIỂN THỊ GIỎ HÀNG ---
+        # --- BẢNG DANH SÁCH PHỤ TÙNG ---
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
-            
-            # CÔNG THỨC SỬA: Giảm giá thì Amount phải nhỏ đi
-            # Amount = Qty * Unit Price * (1 - Discount/100)
+            # Amount sau chiết khấu
             df_cart["Amount"] = df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Distcount"] / 100)
             
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa dòng"] = False
 
-            # Cấu hình bảng: Định dạng %d và khóa các cột không cho edit
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
@@ -149,9 +141,9 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "Qty": st.column_config.NumberColumn(min_value=1),
                     "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
-                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True), # Hiển thị 28,140,000
+                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True),
                     "% Distcount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
-                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True), # Hiển thị 28,140,000
+                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True),
                     "Xóa dòng": st.column_config.CheckboxColumn()
                 },
                 hide_index=True,
@@ -159,8 +151,34 @@ if df_mst is not None and option == "Spare Part Quotation":
                 key="editor"
             )
 
-            # Xử lý cập nhật khi người dùng chỉnh sửa Qty, Discount hoặc Xóa
             if not edited_df.equals(df_cart):
                 new_cart = edited_df[edited_df["Xóa dòng"] == False].drop(columns=["No", "Amount", "Xóa dòng"]).to_dict('records')
                 st.session_state.cart = new_cart
                 st.rerun()
+
+            # --- PHẦN TỔNG KẾT CHI PHÍ (SUMMARY TABLE) ---
+            st.markdown("---")
+            col_sum1, col_sum2 = st.columns([6, 4])
+            
+            with col_sum2:
+                total_amount = df_cart["Amount"].sum()
+                # VAT = sum of (VAT * Unit Price * Qty / 100)
+                total_vat = (df_cart["VAT"] * df_cart["Unit Price"] * df_cart["Qty"] / 100).sum()
+                
+                shipment = st.number_input("Shipment Cost:", min_value=0, value=st.session_state.shipment_cost, step=1000, format="%d")
+                st.session_state.shipment_cost = shipment
+                
+                sub_total = total_amount + shipment
+                grand_total = sub_total + total_vat
+
+                # Tạo DataFrame để hiển thị bảng tổng kết sạch sẽ
+                summary_data = {
+                    "Description": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT", "Grand Total"],
+                    "Value": [total_amount, shipment, sub_total, total_vat, grand_total]
+                }
+                df_summary = pd.DataFrame(summary_data)
+                
+                st.table(df_summary.style.format({"Value": "{:,.0f}"}))
+
+    elif st.session_state.page_view == "Manage":
+        st.info("Trang Order Management")
