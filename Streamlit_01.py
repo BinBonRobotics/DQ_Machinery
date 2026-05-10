@@ -57,7 +57,7 @@ def main():
 
         # --- 3. TRANG TẠO BÁO GIÁ ---
         if st.session_state.sub_action == "create":
-            # --- 3_1 & B_2: DROP MENUS ---
+            # --- 3_1 & 3_7: DROP MENUS & OFFER INFO ---
             r1c1, r1c2 = st.columns(2)
             with r1c1:
                 cust_options = sorted(df_mst['Customer name'].dropna().unique())
@@ -71,7 +71,6 @@ def main():
                 st.selectbox("👤 Contact Person:", options=list_conts if list_conts else ["N/A"])
                 st.markdown(f"📍 **Địa chỉ:** {str(row_mst.get('Địa chỉ', '-'))}")
 
-            # Hàng thông tin bổ sung (ngắn gọn)
             r2c1, r2c2, r2c3, r2c4 = st.columns(4)
             with r2c1:
                 f_macs = df_mac[df_mac.iloc[:, 1].astype(str).str.contains(clean_code(c_no))] if df_mac is not None else pd.DataFrame()
@@ -84,20 +83,17 @@ def main():
                 offer_date = st.date_input("📅 Offer Date:", value=datetime.now())
             with r2c4:
                 offer_no_suggest = f"{offer_date.year}-{offer_date.month:02d}-0001"
-                offer_no = st.text_input("🆔 Offer No:", value=offer_no_suggest)
+                st.text_input("🆔 Offer No:", value=offer_no_suggest)
 
             st.divider()
             
-            # --- 3_2: TÌM PART NUMBER (ĐÃ KHÔI PHỤC THÔNG BÁO LỖI) ---
+            # --- 3_2 & 3_3: TÌM PART NUMBER & NÚT BẤM CỐ ĐỊNH PHÍA DƯỚI ---
             st.subheader("🔍 Tìm Part Number")
-            r3c1, r3c2 = st.columns([3, 1])
-            with r3c1:
-                input_search = st.text_input("Nhập mã (cách nhau bởi dấu ;):", placeholder="3608080970; 4007010482")
-            with r3c2:
-                st.write("##")
-                add_btn = st.button("🛒 Thêm vào giỏ hàng", type="primary", use_container_width=True)
+            input_search = st.text_input("Nhập mã (cách nhau bởi dấu ;):", placeholder="3608080970; 4007010482")
+            
+            # Nút bấm nằm ngay dưới ô nhập liệu (không chia cột)
+            add_btn = st.button("🛒 Thêm vào giỏ hàng", type="primary")
 
-            # Hiển thị thông báo nếu không tìm thấy (giữ nguyên yêu cầu 3_2)
             if st.session_state.last_not_found:
                 st.error(f"❌ Không tìm thấy Part Number: {', '.join(st.session_state.last_not_found)}")
 
@@ -118,10 +114,10 @@ def main():
                     else:
                         current_not_found.append(code)
                 
-                st.session_state.last_not_found = current_not_found # Lưu lại để hiển thị
+                st.session_state.last_not_found = current_not_found
                 st.rerun()
 
-            # --- 3_3: TABLE DANH SÁCH CHI TIẾT ---
+            # --- 3_4: TABLE DANH SÁCH CHI TIẾT ---
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 df_cart = pd.DataFrame(st.session_state.cart)
@@ -155,10 +151,10 @@ def main():
                             item['Qty'] = row['Qty']; item['%Dist'] = row['%Dist']
                             new_cart.append(item)
                     st.session_state.cart = new_cart
-                    st.session_state.last_not_found = [] # Xoá thông báo lỗi khi cập nhật giỏ
+                    st.session_state.last_not_found = []
                     st.rerun()
 
-                # --- 3_4: TÍNH NĂNG TỔNG KẾT BÁO GIÁ ---
+                # --- 3_5: TÍNH NĂNG TỔNG KẾT BÁO GIÁ ---
                 st.divider()
                 total_amt = df_cart['Amount'].sum()
                 
@@ -180,7 +176,7 @@ def main():
                     }
                     st.table(pd.DataFrame(summary_data))
                 
-                # --- 3_5: NÚT LƯU BÁO GIÁ ---
+                # --- 3_6: NÚT LƯU BÁO GIÁ ---
                 st.button("💾 Lưu Báo Giá", use_container_width=True, type="primary")
 
         # --- 4: ORDER MANAGEMENT ---
