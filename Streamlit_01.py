@@ -11,7 +11,7 @@ def clean_code(val):
     if pd.isna(val) or val == "": return ""
     return re.sub(r'[^a-zA-Z0-9]', '', str(val).split('.')[0]).strip().upper()
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=2)
 def load_all_data():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
@@ -46,7 +46,7 @@ def main():
 
     if 'cart' not in st.session_state: st.session_state.cart = []
     if 'menu_action' not in st.session_state: st.session_state.menu_action = "Tạo báo giá"
-    if 'ship_cost' not in st.session_state: st.session_state.ship_cost = 0
+    if 'ship_cost' not in st.session_state: st.session_state.ship_cost = 0.0
     if 'edit_mode_header' not in st.session_state: st.session_state.edit_mode_header = None
 
     # --- SIDEBAR ---
@@ -54,25 +54,26 @@ def main():
         st.header("⚙️ Hệ thống")
         if st.button("🔄 Làm mới dữ liệu", use_container_width=True):
             st.cache_data.clear(); st.rerun()
-        st.divider()
-        if st.button("➕ Tạo báo giá / Quản lý", use_container_width=True):
-            st.session_state.menu_action = "Tạo báo giá"; st.rerun()
 
     # --- NAVIGATION ---
     c_nav1, c_nav2 = st.columns(2)
     with c_nav1:
         if st.button("➕ Tạo báo giá mới", use_container_width=True):
-            st.session_state.menu_action = "Tạo báo giá"; st.session_state.edit_mode_header = None
-            st.session_state.cart = []; st.session_state.ship_cost = 0; st.rerun()
+            st.session_state.menu_action = "Tạo báo giá"
+            st.session_state.edit_mode_header = None
+            st.session_state.cart = []
+            st.session_state.ship_cost = 0.0
+            st.rerun()
     with c_nav2:
         if st.button("📋 Order Management", use_container_width=True):
-            st.session_state.menu_action = "Order Management"; st.rerun()
+            st.session_state.menu_action = "Order Management"
+            st.rerun()
     st.divider()
 
     if st.session_state.menu_action == "Tạo báo giá":
         edit_h = st.session_state.edit_mode_header
         
-        # Header Fields
+        # 1. Row 1: Customer Info
         r1c1, r1c2 = st.columns(2)
         with r1c1:
             cust_list = sorted(df_mst['Customer name'].dropna().unique())
@@ -88,6 +89,7 @@ def main():
             contact_person = st.selectbox("👤 Contact Person:", options=list_conts if list_conts else ["N/A"], index=idx_cont)
             st.markdown(f"📍 **Địa chỉ:** {row_mst.get('Địa chỉ', '-')}")
 
+        # 2. Row 2: Machine & Staff
         r2c1, r2c2 = st.columns(2)
         with r2c1:
             list_macs = df_mac[df_mac['Customers'] == cust_name]['Machine No.'].dropna().unique().tolist()
@@ -98,6 +100,7 @@ def main():
             idx_staff = list_staff.index(edit_h['Staff']) if edit_h and edit_h['Staff'] in list_staff else 0
             staff_name = st.selectbox("✍️ Người lập báo giá:", options=list_staff, index=idx_staff)
 
+        # 3. Row 3: Offer No & Date
         r3c1, r3c2 = st.columns(2)
         with r3c1:
             off_no = st.text_input("🆔 Offer No:", value=str(edit_h['Offer_No']) if edit_h else f"OFF-{datetime.now().strftime('%Y%m%d%H%M')}")
@@ -106,7 +109,7 @@ def main():
 
         st.divider()
 
-        # Add Part
+        # 4. Search & Add
         search_pn = st.text_input("🔍 Nhập Part Number (ví dụ: 123; 456):")
         if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
             if search_pn:
@@ -119,26 +122,23 @@ def main():
                         item = match.iloc[0]
                         st.session_state.cart.append({
                             "Offer_No": current_off_id,
-                            "Part Number": item['Part number'], "Part Name": item['Part name'],
-                            "Qty": 1.0, "Unit": item['Unit'], "VAT": 8.0,
+                            "Part Number": str(item['Part number']), "Part Name": str(item['Part name']),
+                            "Qty": 1.0, "Unit": str(item['Unit']), "VAT": 8.0,
                             "Unit Price": float(item.get('Giá bán', 0)), "%Dist": 0.0, "Xoá": False
                         })
                     else: st.error(f"Không thấy mã: {code}")
                 st.rerun()
 
-        # Cart Table
+        # 5. Cart Display
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
-            # Ép kiểu dữ liệu ngay lập tức để đồng nhất
-            df_cart['Offer_No'] = str(off_no).strip()
-            df_cart['Qty'] = df_cart['Qty'].astype(float)
-            df_cart['Unit Price'] = df_cart['Unit Price'].astype(float)
-            df_cart['%Dist'] = df_cart['%Dist'].astype(float)
-            df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
             
-            # Sắp xếp cột
-            disp_cols = ["Offer_No", "Part Number", "Part Name", "Qty", "Unit", "Unit Price", "VAT", "%Dist", "Amount", "Xoá"]
-            df_cart = df_cart[disp_cols]
+            # Cực kỳ quan trọng: Ép kiểu dữ liệu để không lỗi tính toán
+            df_cart['Qty'] = pd.to_numeric(df_cart['Qty'], errors='coerce').fillna(0.0)
+            df_cart['Unit Price'] = pd.to_numeric(df_cart['Unit Price'], errors='coerce').fillna(0.0)
+            df_cart['%Dist'] = pd.to_numeric(df_cart['%Dist'], errors='coerce').fillna(0.0)
+            df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
+            df_cart['Offer_No'] = str(off_no).strip()
 
             edited_df = st.data_editor(
                 df_cart, use_container_width=True, hide_index=True,
@@ -154,7 +154,7 @@ def main():
                 st.session_state.cart = edited_df[~edited_df['Xoá']].drop(columns=['Amount']).to_dict('records')
                 st.rerun()
 
-            # Summary Table
+            # 6. Summary Section
             st.subheader("📊 Tổng kết báo giá:")
             ship_val = st.number_input("🚚 Shipment Cost (VND):", value=float(st.session_state.ship_cost), step=1000.0)
             st.session_state.ship_cost = ship_val
@@ -169,12 +169,11 @@ def main():
             })
             st.table(summary_df)
 
-            # SAVE LOGIC
+            # 7. Save Logic
             if st.button("💾 Lưu Báo Giá", use_container_width=True, type="primary"):
                 try:
                     current_off = str(off_no).strip()
-                    
-                    # 1. Update Header
+                    # Update Header
                     new_h = pd.DataFrame([{
                         "Offer_No": current_off, "Offer_Date": off_date.strftime("%Y-%m-%d"),
                         "Customer_Name": cust_name, "Cust_No": c_no, "VAT_Code": mst_val,
@@ -185,45 +184,52 @@ def main():
                     }])
                     df_h_final = pd.concat([df_h_stored[df_h_stored['Offer_No'] != current_off], new_h], ignore_index=True)
                     
-                    # 2. Update Details (Đồng bộ kiểu dữ liệu tuyệt đối)
+                    # Update Details
                     details = edited_df[~edited_df['Xoá']].copy()
                     details['Offer_No'] = current_off
                     details = details.rename(columns={
                         "Part Number":"Part_Number", "Part Name":"Part_Name",
                         "VAT":"VAT_Rate", "Unit Price":"Unit_Price", "%Dist":"Discount_Percent"
                     })
-                    
-                    # Lọc lấy các cột cần thiết và ép kiểu
                     final_cols = ['Offer_No','Part_Number','Part_Name','Qty','Unit','Unit_Price','VAT_Rate','Discount_Percent','Amount']
                     details = details[final_cols]
                     for col in ['Qty', 'Unit_Price', 'VAT_Rate', 'Discount_Percent', 'Amount']:
                         details[col] = details[col].astype(float)
                     
-                    # Concat dữ liệu cũ và mới
                     df_d_final = pd.concat([df_d_stored[df_d_stored['Offer_No'] != current_off], details], ignore_index=True)
 
-                    # 3. Push to Sheets
                     update_sheet("Offer_Header", df_h_final)
                     update_sheet("Offer_Details", df_d_final)
                     
                     st.success(f"✅ Đã lưu báo giá {current_off}!")
                     st.cache_data.clear(); st.rerun()
-                except Exception as save_error:
-                    st.error(f"❌ Lỗi khi lưu: {save_error}")
+                except Exception as e:
+                    st.error(f"Lỗi khi lưu: {e}")
 
     elif st.session_state.menu_action == "Order Management":
-        st.subheader("Quản lý báo giá")
+        st.subheader("📋 Danh sách báo giá đã lưu")
         st.dataframe(df_h_stored, use_container_width=True, hide_index=True)
-        sel = st.selectbox("Chọn Offer để sửa:", [""] + list(df_h_stored['Offer_No'].unique()))
-        if sel and st.button("📝 Bắt đầu sửa"):
+        sel = st.selectbox("Chọn Offer No để sửa:", [""] + list(df_h_stored['Offer_No'].unique()))
+        if sel and st.button("📝 Sửa báo giá này", use_container_width=True):
+            # Lấy thông tin Header
             h = df_h_stored[df_h_stored['Offer_No'] == sel].iloc[0]
             st.session_state.edit_mode_header = h.to_dict()
-            st.session_state.ship_cost = float(h['Shipment_Cost'])
-            d = df_d_stored[df_d_stored['Offer_No'] == sel]
-            st.session_state.cart = d.rename(columns={
+            st.session_state.ship_cost = float(h.get('Shipment_Cost', 0))
+            
+            # Lấy thông tin Details và ÉP KIỂU SỐ NGAY LẬP TỨC
+            d = df_d_stored[df_d_stored['Offer_No'] == sel].copy()
+            d = d.rename(columns={
                 "Part_Number":"Part Number","Part_Name":"Part Name","VAT_Rate":"VAT","Unit_Price":"Unit Price","Discount_Percent":"%Dist"
-            }).to_dict('records')
-            st.session_state.menu_action = "Tạo báo giá"; st.rerun()
+            })
+            
+            # Bước quan trọng nhất: Chuyển toàn bộ dữ liệu từ Sheets về số chuẩn
+            for col in ["Qty", "Unit Price", "VAT", "%Dist"]:
+                if col in d.columns:
+                    d[col] = pd.to_numeric(d[col], errors='coerce').fillna(0.0)
+            
+            st.session_state.cart = d.to_dict('records')
+            st.session_state.menu_action = "Tạo báo giá"
+            st.rerun()
 
 if __name__ == "__main__":
     main()
