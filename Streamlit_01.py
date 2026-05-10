@@ -54,13 +54,13 @@ if df_mst is not None and option == "Spare Part Quotation":
         selected_name = st.selectbox("Customer Name:", options=names)
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
         
-        # Customer No & Tax Code (Format số nguyên)
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
+        # Tax Code giữ nguyên định dạng số nguyên không có .0
         t_val = cust_row.iloc[5]
         t_code = str(t_val).split('.')[0].strip() if not pd.isna(t_val) else ""
-        st.text_input("Tax Code:", value=t_code, disabled=True) #
+        st.text_input("Tax Code:", value=t_code, disabled=True)
         
         st.text_area("Address:", value=str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else "", height=70, disabled=True)
         
@@ -96,7 +96,6 @@ if df_mst is not None and option == "Spare Part Quotation":
                     match = df_sp[df_sp.iloc[:, 1].astype(str).str.strip() == code]
                     if not match.empty:
                         item = match.iloc[0]
-                        # Xử lý VAT
                         raw_vat = item.iloc[12]
                         try:
                             display_vat = int(float(raw_vat) * 100) if float(raw_vat) < 1 else int(float(raw_vat))
@@ -123,16 +122,14 @@ if df_mst is not None and option == "Spare Part Quotation":
             st.session_state.shipment_cost = 0
             st.rerun()
 
-        # --- BẢNG HIỂN THỊ DANH SÁCH PHỤ TÙNG ---
+        # --- BẢNG DANH SÁCH LINH KIỆN ---
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
-            # Công thức Amount chuẩn: Giá sau chiết khấu
             df_cart["Amount"] = df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Distcount"] / 100)
-            
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa dòng"] = False
 
-            # Định dạng Unit Price và Amount thành số nguyên có dấu phẩy
+            # CẬP NHẬT ĐỊNH DẠNG DẤU PHẨY (format="%,d")
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
@@ -142,9 +139,9 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "Qty": st.column_config.NumberColumn(min_value=1),
                     "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
-                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True), # Định dạng 28,140,000
+                    "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True), # Hiển thị dấu phẩy
                     "% Distcount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
-                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True), # Định dạng 28,140,000
+                    "Amount": st.column_config.NumberColumn(format="%,d", disabled=True), # Hiển thị dấu phẩy
                     "Xóa dòng": st.column_config.CheckboxColumn()
                 },
                 hide_index=True,
@@ -157,7 +154,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                 st.session_state.cart = new_cart
                 st.rerun()
 
-            # --- BẢNG TỔNG KẾT CHI PHÍ ---
+            # --- TỔNG KẾT CHI PHÍ ---
             st.markdown("---")
             col_sum1, col_sum2 = st.columns([6, 4])
             
@@ -177,7 +174,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                 }
                 df_summary = pd.DataFrame(summary_data)
                 
-                # Hiển thị bảng tổng kết với định dạng số nguyên có dấu phẩy
+                # Ép định dạng dấu phẩy cho cột Value trong bảng tổng kết
                 st.table(df_summary.style.format({"Value": "{:,.0f}"}))
 
     elif st.session_state.page_view == "Manage":
