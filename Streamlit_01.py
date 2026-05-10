@@ -6,7 +6,7 @@ from datetime import datetime
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(layout="wide", page_title="Quotation System")
 
-# URL Google Sheet
+# URL Google Sheet của bạn
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8/edit#gid=903775380"
 
 # --- 2. HÀM LOAD DỮ LIỆU ---
@@ -26,6 +26,7 @@ def load_data():
 
 df_mst, df_contact, df_staff, df_machines, df_sp = load_data()
 
+# Khởi tạo Session State
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'page_view' not in st.session_state: st.session_state.page_view = "New"
 
@@ -54,6 +55,7 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
+        # Tax Code: Xóa .0 và giữ số 0 đầu
         t_val = cust_row.iloc[5]
         t_code = str(t_val).split('.')[0].strip() if not pd.isna(t_val) else ""
         if len(t_code) == 9: t_code = "0" + t_code
@@ -91,13 +93,17 @@ if df_mst is not None and option == "Spare Part Quotation":
                     match = df_sp[df_sp.iloc[:, 1].astype(str).str.strip() == code]
                     if not match.empty:
                         item = match.iloc[0]
-                        # FIX LỖI VAT: Kiểm tra nếu None thì gán bằng 0
+                        
+                        # XỬ LÝ VAT TRỐNG (None -> 0)
                         raw_vat = item.iloc[12]
-                        if pd.isna(raw_vat) or raw_vat == "None":
+                        if pd.isna(raw_vat):
                             display_vat = 0
                         else:
                             # Nếu là 0.08 thì thành 8, nếu là 8 thì giữ nguyên 8
-                            display_vat = int(raw_vat * 100) if float(raw_vat) < 1 else int(raw_vat)
+                            try:
+                                display_vat = int(float(raw_vat) * 100) if float(raw_vat) < 1 else int(float(raw_vat))
+                            except:
+                                display_vat = 0
                         
                         st.session_state.cart.append({
                             "Part Number": str(item.iloc[1]),
@@ -109,7 +115,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "% Distcount": 0
                         })
                     else:
-                        st.warning(f"Part Number {code} is not available")
+                        st.warning(f"Part Number {code} không tồn tại")
                 st.rerun()
 
         if col_act2.button("Delete Cart", use_container_width=True):
@@ -119,13 +125,12 @@ if df_mst is not None and option == "Spare Part Quotation":
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
             
-            # CÔNG THỨC: Amount = Qty * Unit Price * %Discount / 100
-            df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * df_cart["% Distcount"]) / 100
+            # CÔNG THỨC: Amount = Unit Price * %Discount * Qty / 100
+            df_cart["Amount"] = (df_cart["Unit Price"] * df_cart["% Distcount"] * df_cart["Qty"]) / 100
             
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa"] = False
 
-            # Hiển thị bảng với định dạng số có dấu phẩy (format="%d")
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
@@ -135,9 +140,9 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "Qty": st.column_config.NumberColumn(min_value=1, step=1),
                     "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
-                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True),
+                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "% Distcount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
-                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True),
+                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "Xóa": st.column_config.CheckboxColumn()
                 },
                 hide_index=True,
