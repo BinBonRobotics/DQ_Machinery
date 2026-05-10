@@ -54,7 +54,6 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # Xử lý Tax Code hiển thị sạch sẽ
         t_val = cust_row.iloc[5]
         t_code = str(t_val).split('.')[0].strip() if not pd.isna(t_val) else ""
         if len(t_code) == 9: t_code = "0" + t_code
@@ -92,9 +91,13 @@ if df_mst is not None and option == "Spare Part Quotation":
                     match = df_sp[df_sp.iloc[:, 1].astype(str).str.strip() == code]
                     if not match.empty:
                         item = match.iloc[0]
-                        # Chuyển đổi VAT 0.08 thành 8
-                        raw_vat = item.iloc[12] if not pd.isna(item.iloc[12]) else 0.08
-                        display_vat = int(raw_vat * 100) if raw_vat < 1 else raw_vat
+                        # FIX LỖI VAT: Kiểm tra nếu None thì gán bằng 0
+                        raw_vat = item.iloc[12]
+                        if pd.isna(raw_vat) or raw_vat == "None":
+                            display_vat = 0
+                        else:
+                            # Nếu là 0.08 thì thành 8, nếu là 8 thì giữ nguyên 8
+                            display_vat = int(raw_vat * 100) if float(raw_vat) < 1 else int(raw_vat)
                         
                         st.session_state.cart.append({
                             "Part Number": str(item.iloc[1]),
@@ -105,6 +108,8 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "Unit Price": float(item.iloc[18]) if not pd.isna(item.iloc[18]) else 0.0,
                             "% Distcount": 0
                         })
+                    else:
+                        st.warning(f"Part Number {code} is not available")
                 st.rerun()
 
         if col_act2.button("Delete Cart", use_container_width=True):
@@ -114,13 +119,13 @@ if df_mst is not None and option == "Spare Part Quotation":
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
             
-            # CÔNG THỨC THEO YÊU CẦU: Amount = Unit Price * %Distcount * Qty / 100
-            # Lưu ý: %Distcount ở đây là phần trăm giảm giá nên mình chia 100
-            df_cart["Amount"] = (df_cart["Unit Price"] * df_cart["% Distcount"] * df_cart["Qty"]) / 100
+            # CÔNG THỨC: Amount = Qty * Unit Price * %Discount / 100
+            df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * df_cart["% Distcount"]) / 100
             
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa"] = False
 
+            # Hiển thị bảng với định dạng số có dấu phẩy (format="%d")
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
@@ -130,9 +135,9 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "Qty": st.column_config.NumberColumn(min_value=1, step=1),
                     "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
-                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True), # Hiển thị số nguyên
+                    "Unit Price": st.column_config.NumberColumn(format="%d", disabled=True),
                     "% Distcount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
-                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True), # Hiển thị số nguyên
+                    "Amount": st.column_config.NumberColumn(format="%d", disabled=True),
                     "Xóa": st.column_config.CheckboxColumn()
                 },
                 hide_index=True,
