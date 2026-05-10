@@ -21,7 +21,8 @@ def load_data():
         sp = conn.read(spreadsheet=SHEET_URL, worksheet="SP_List").dropna(how='all')
         return mst, contact, staff, machines, sp
     except Exception as e:
-        st.error(f"Lỗi kết nối Sheet: {e}")
+        st.error(f"Lỗi kết nối: {e}")
+        st.warning("Vui lòng kiểm tra cấu hình Secrets và URL Google Sheets.")
         return None, None, None, None, None
 
 df_mst, df_contact, df_staff, df_machines, df_sp = load_data()
@@ -54,9 +55,11 @@ if df_mst is not None and option == "Spare Part Quotation":
         selected_name = st.selectbox("Customer Name:", options=names)
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
         
+        # Format Customer No & Tax Code để không bị hiện .0
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
+        # SỬA FORMAT TAX CODE
         t_val = cust_row.iloc[5]
         t_code = str(t_val).split('.')[0].strip() if not pd.isna(t_val) else ""
         st.text_input("Tax Code:", value=t_code, disabled=True)
@@ -80,7 +83,7 @@ if df_mst is not None and option == "Spare Part Quotation":
         st.subheader("Offer Descriptions")
 
         # --- Ô TÌM KIẾM ---
-        search_input = st.text_input("Search Part Number:", placeholder="2024956492;2031956280")
+        search_input = st.text_input("Search Part Number:", placeholder="Nhập part number, cách nhau bởi dấu ;")
         
         if st.session_state.search_error:
             st.error(st.session_state.search_error)
@@ -95,12 +98,11 @@ if df_mst is not None and option == "Spare Part Quotation":
                     match = df_sp[df_sp.iloc[:, 1].astype(str).str.strip() == code]
                     if not match.empty:
                         item = match.iloc[0]
+                        # Xử lý VAT từ sheet
                         raw_vat = item.iloc[12]
-                        display_vat = 0
-                        if not pd.isna(raw_vat):
-                            try:
-                                display_vat = int(float(raw_vat) * 100) if float(raw_vat) < 1 else int(float(raw_vat))
-                            except: display_vat = 0
+                        try:
+                            display_vat = int(float(raw_vat) * 100) if float(raw_vat) < 1 else int(float(raw_vat))
+                        except: display_vat = 0
                         
                         st.session_state.cart.append({
                             "Part Number": str(item.iloc[1]),
@@ -123,15 +125,16 @@ if df_mst is not None and option == "Spare Part Quotation":
             st.session_state.shipment_cost = 0
             st.rerun()
 
-        # --- BẢNG DANH SÁCH PHỤ TÙNG ---
+        # --- BẢNG DANH SÁCH ---
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
-            # Amount sau chiết khấu
+            # Tính Amount: Qty * Price * (1 - Discount/100)
             df_cart["Amount"] = df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Distcount"] / 100)
             
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa dòng"] = False
 
+            # SỬA FORMAT UNIT PRICE VÀ AMOUNT TRONG EDITOR
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
@@ -156,13 +159,12 @@ if df_mst is not None and option == "Spare Part Quotation":
                 st.session_state.cart = new_cart
                 st.rerun()
 
-            # --- PHẦN TỔNG KẾT CHI PHÍ (SUMMARY TABLE) ---
+            # --- TỔNG KẾT CHI PHÍ ---
             st.markdown("---")
             col_sum1, col_sum2 = st.columns([6, 4])
             
             with col_sum2:
                 total_amount = df_cart["Amount"].sum()
-                # VAT = sum of (VAT * Unit Price * Qty / 100)
                 total_vat = (df_cart["VAT"] * df_cart["Unit Price"] * df_cart["Qty"] / 100).sum()
                 
                 shipment = st.number_input("Shipment Cost:", min_value=0, value=st.session_state.shipment_cost, step=1000, format="%d")
@@ -171,13 +173,13 @@ if df_mst is not None and option == "Spare Part Quotation":
                 sub_total = total_amount + shipment
                 grand_total = sub_total + total_vat
 
-                # Tạo DataFrame để hiển thị bảng tổng kết sạch sẽ
                 summary_data = {
                     "Description": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT", "Grand Total"],
                     "Value": [total_amount, shipment, sub_total, total_vat, grand_total]
                 }
                 df_summary = pd.DataFrame(summary_data)
                 
+                # Hiển thị bảng tổng kết với định dạng số nguyên có dấu phẩy
                 st.table(df_summary.style.format({"Value": "{:,.0f}"}))
 
     elif st.session_state.page_view == "Manage":
