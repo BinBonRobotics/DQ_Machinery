@@ -54,36 +54,35 @@ if df_mst is not None and option == "Spare Part Quotation":
         selected_name = st.selectbox("Customer Name:", options=names)
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
         
-        # Customer No
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # --- FIX TAX CODE: Luôn đảm bảo 10 ký tự ---
+        # FIX TAX CODE: Luôn đảm bảo 10 ký tự
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
         else:
-            # Chuyển thành số nguyên để mất .0, sau đó thành chuỗi, và thêm '0' vào đầu cho đủ 10 số
             try:
                 t_code_display = str(int(float(t_val))).zfill(10)
             except:
                 t_code_display = str(t_val).split('.')[0].zfill(10)
         st.text_input("Tax Code:", value=t_code_display, disabled=True)
         
-        st.text_area("Address:", value=str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else "", height=70, disabled=True)
+        addr = str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else ""
+        st.text_area("Address:", value=addr, height=70, disabled=True)
         
         f_contact = df_contact[df_contact.iloc[:, 1].astype(str).str.contains(c_no)]
         contact_list = f_contact.iloc[:, 7].dropna().tolist() if not f_contact.empty else ["N/A"]
-        st.selectbox("Contact Person:", options=contact_list)
+        contact_person = st.selectbox("Contact Person:", options=contact_list)
         
-        st.selectbox("Officer:", options=df_staff.iloc[:, 1].dropna().tolist())
+        officer = st.selectbox("Officer:", options=df_staff.iloc[:, 1].dropna().tolist())
         
         f_machines = df_machines[df_machines.iloc[:, 1].astype(str).str.contains(c_no)]
         machine_list = f_machines.iloc[:, 14].dropna().tolist() if not f_machines.empty else ["N/A"]
-        st.selectbox("Machine Number:", options=machine_list)
+        machine_no = st.selectbox("Machine Number:", options=machine_list)
         
         off_date = st.date_input("Offer Date:", value=datetime.now())
-        st.text_input("Offer No:", value=f"{off_date.year}-{off_date.month:02d}-0001")
+        offer_no = st.text_input("Offer No:", value=f"{off_date.year}-{off_date.month:02d}-0001")
 
         st.markdown("---")
         st.subheader("Offer Descriptions")
@@ -110,16 +109,15 @@ if df_mst is not None and option == "Spare Part Quotation":
                         
                         st.session_state.cart.append({
                             "Part Number": str(item.iloc[1]),
-                            "Part Nname": str(item.iloc[4]),
+                            "Part Name": str(item.iloc[4]),
                             "Qty": 1,
                             "Unit": str(item.iloc[7]),
                             "VAT": display_vat,
                             "Unit Price": int(float(item.iloc[18])) if not pd.isna(item.iloc[18]) else 0,
-                            "% Distcount": 0
+                            "% Discount": 0
                         })
                     else:
                         not_found.append(code)
-                
                 st.session_state.search_error = f"Part Number {', '.join(not_found)} is not available" if not_found else ""
                 st.rerun()
 
@@ -132,24 +130,22 @@ if df_mst is not None and option == "Spare Part Quotation":
         # --- BẢNG DANH SÁCH LINH KIỆN ---
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
-            df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Distcount"] / 100)).astype(int)
+            df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Discount"] / 100)).astype(int)
             df_cart["Unit Price"] = df_cart["Unit Price"].astype(int)
-            
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa dòng"] = False
 
-            # Dùng format="%,d" để ép Streamlit hiện dấu phẩy phân cách phần ngàn
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
                     "No": st.column_config.NumberColumn(disabled=True),
                     "Part Number": st.column_config.TextColumn(disabled=True),
-                    "Part Nname": st.column_config.TextColumn(disabled=True),
+                    "Part Name": st.column_config.TextColumn(disabled=True),
                     "Qty": st.column_config.NumberColumn(min_value=1),
                     "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True),
-                    "% Distcount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
+                    "% Discount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
                     "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
                     "Xóa dòng": st.column_config.CheckboxColumn()
                 },
@@ -170,10 +166,8 @@ if df_mst is not None and option == "Spare Part Quotation":
             with col_sum2:
                 total_amount = int(df_cart["Amount"].sum())
                 total_vat = int((df_cart["VAT"] * df_cart["Unit Price"] * df_cart["Qty"] / 100).sum())
-                
                 shipment = st.number_input("Shipment Cost:", min_value=0, value=int(st.session_state.shipment_cost), step=1000, format="%d")
                 st.session_state.shipment_cost = shipment
-                
                 sub_total = total_amount + shipment
                 grand_total = sub_total + total_vat
 
@@ -183,6 +177,34 @@ if df_mst is not None and option == "Spare Part Quotation":
                 }
                 df_summary = pd.DataFrame(summary_data)
                 st.table(df_summary.style.format({"Value": "{:,.0f}"}))
+
+            # --- NÚT BẤM LƯU & PRINT ---
+            col_save1, col_save2, _ = st.columns([1.5, 1.5, 7])
+            
+            if col_save1.button("Save Quotation", type="primary", use_container_width=True):
+                try:
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    
+                    # 1. Lưu Header
+                    header_data = pd.DataFrame([{
+                        "Offer No": offer_no, "Date": str(off_date), "Customer No": c_no,
+                        "Customer Name": selected_name, "Tax Code": t_code_display,
+                        "Officer": officer, "Grand Total": grand_total
+                    }])
+                    conn.create(spreadsheet=SHEET_URL, worksheet="Offer_Header", data=header_data)
+                    
+                    # 2. Lưu Details
+                    details_to_save = edited_df[edited_df["Xóa dòng"] == False].copy()
+                    details_to_save["Offer No"] = offer_no
+                    details_to_save = details_to_save.drop(columns=["No", "Xóa dòng"])
+                    conn.create(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=details_to_save)
+                    
+                    st.success("Quotation saved successfully!")
+                except Exception as e:
+                    st.error(f"Save failed: {e}")
+
+            if col_save2.button("Print PDF", use_container_width=True):
+                st.info("Feature Coming Soon")
 
     elif st.session_state.page_view == "Manage":
         st.info("Trang Order Management")
