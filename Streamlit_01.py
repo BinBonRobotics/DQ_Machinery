@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import re
+from datetime import datetime
 
 # 1. Hàm làm sạch mã Part Number
 def clean_code(val):
@@ -29,12 +30,14 @@ def main():
     df_sp, df_mst, df_con, df_mac, df_staff = load_all_data()
     if df_mst is None: return
 
+    # Khởi tạo Session State
     if 'cart' not in st.session_state: st.session_state.cart = []
     if 'sub_action' not in st.session_state: st.session_state.sub_action = "create"
     if 'ship_cost' not in st.session_state: st.session_state.ship_cost = 0.0
 
-    # --- SIDEBAR ---
+    # --- 1. SIDEBAR ---
     st.sidebar.title("⚙️ Cấu hình")
+    ty_gia = st.sidebar.number_input("Tỷ giá Euro (VND):", value=31000, step=100)
     if st.sidebar.button("🔄 Làm mới dữ liệu", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -42,6 +45,7 @@ def main():
     menu_selection = st.sidebar.radio("📂 Danh mục chính:", ["📄 Báo Giá Phụ Tùng", "🗂️ Master Data"])
 
     if menu_selection == "📄 Báo Giá Phụ Tùng":
+        # --- 2. NÚT ĐIỀU HƯỚNG ---
         col_btn1, col_btn2, _ = st.columns([1.5, 2, 3])
         if col_btn1.button("➕ Tạo Báo Giá", use_container_width=True, type="primary" if st.session_state.sub_action=="create" else "secondary"):
             st.session_state.sub_action = "create"
@@ -50,8 +54,10 @@ def main():
         
         st.divider()
 
+        # --- 3. TRANG TẠO BÁO GIÁ ---
         if st.session_state.sub_action == "create":
-            # --- THÔNG TIN KHÁCH HÀNG ---
+            # --- 3_1 & B_2: DROP MENUS & NEW FEATURES ---
+            # Hàng 1: Khách hàng và Thông tin chung
             r1c1, r1c2 = st.columns(2)
             with r1c1:
                 cust_options = sorted(df_mst['Customer name'].dropna().unique())
@@ -59,58 +65,68 @@ def main():
                 row_mst = df_mst[df_mst['Customer name'] == cust_name].iloc[0]
                 c_no = str(row_mst.get('Customer no', row_mst.get('Customer\nno', ''))).split('.')[0]
                 st.info(f"**Cust No:** {c_no} | **MST:** {row_mst.get('Mã số thuế', '-')}")
-            
             with r1c2:
                 f_conts = df_con[df_con.iloc[:, 1].astype(str).str.contains(clean_code(c_no))] if df_con is not None else pd.DataFrame()
                 list_conts = f_conts.iloc[:, 7].dropna().unique().tolist() if not f_conts.empty else []
                 st.selectbox("👤 Contact Person:", options=list_conts if list_conts else ["N/A"])
                 st.markdown(f"📍 **Địa chỉ:** {str(row_mst.get('Địa chỉ', '-'))}")
 
-            r2c1, r2c2 = st.columns(2)
+            # Hàng 2: Machine, Staff, Date, No (Làm ngắn lại bằng cách chia 4 cột)
+            r2c1, r2c2, r2c3, r2c4 = st.columns(4)
             with r2c1:
-                # Machine Number tham chiếu cột O (Customer Machine)
                 f_macs = df_mac[df_mac.iloc[:, 1].astype(str).str.contains(clean_code(c_no))] if df_mac is not None else pd.DataFrame()
                 list_macs = f_macs.iloc[:, 14].dropna().unique().tolist() if not f_macs.empty else []
                 st.selectbox("🤖 Machine Number:", options=list_macs if list_macs else ["N/A"])
-            
             with r2c2:
                 list_staff = df_staff['Name'].dropna().unique().tolist() if (df_staff is not None and 'Name' in df_staff.columns) else ["Admin"]
-                st.selectbox("✍️ Người lập báo giá:", options=list_staff)
+                st.selectbox("✍️ Người lập:", options=list_staff)
+            with r2c3:
+                # B_2.1: Offer Date
+                offer_date = st.date_input("📅 Offer Date:", value=datetime.now())
+            with r2c4:
+                # B_2.2: Offer No (Định nghĩa tự động theo Năm-Tháng-0001)
+                # Lưu ý: Phần số thứ tự sau này sẽ được link với DB, hiện tại để mặc định hiển thị đúng định dạng
+                offer_no_suggest = f"{offer_date.year}-{offer_date.month:02d}-0001"
+                offer_no = st.text_input("🆔 Offer No:", value=offer_no_suggest)
 
             st.divider()
             
-            # --- TÌM PART NUMBER ---
+            # --- 3_2: TÌM PART NUMBER & THÊM VÀO GIỎ ---
             st.subheader("🔍 Tìm Part Number")
-            input_search = st.text_input("Nhập mã (ví dụ: 3608080970; 4007010482):")
-            
-            if st.button("🛒 Thêm vào giỏ hàng", type="primary"):
-                if input_search:
-                    codes = [clean_code(c) for c in input_search.split(';') if c.strip()]
-                    df_sp['CLEAN_PN'] = df_sp['Part number'].apply(clean_code)
-                    for code in codes:
-                        match = df_sp[df_sp['CLEAN_PN'] == code]
-                        if not match.empty:
-                            item = match.iloc[0]
-                            st.session_state.cart.append({
-                                "Part Number": item['Part number'],
-                                "Part name": item['Part name'],
-                                "Qty": 1,
-                                "Unit": item['Unit'],
-                                "VAT": 8,
-                                "Unit Price": float(item.get('Giá bán', 0)),
-                                "%Dist": 0.0,
-                                "Xoá": False
-                            })
-                    st.rerun()
+            r3c1, r3c2 = st.columns([3, 1])
+            with r3c1:
+                input_search = st.text_input("Nhập mã (cách nhau bởi dấu ;):", placeholder="3608080970; 4007010482")
+            with r3c2:
+                st.write("##") # Căn chỉnh nút bấm
+                add_btn = st.button("🛒 Thêm vào giỏ hàng", type="primary", use_container_width=True)
 
-            # --- BẢNG CHI TIẾT ---
+            if add_btn and input_search:
+                codes = [clean_code(c) for c in input_search.split(';') if c.strip()]
+                df_sp['CLEAN_PN'] = df_sp['Part number'].apply(clean_code)
+                not_found = []
+                for code in codes:
+                    match = df_sp[df_sp['CLEAN_PN'] == code]
+                    if not match.empty:
+                        item = match.iloc[0]
+                        st.session_state.cart.append({
+                            "Part Number": item['Part number'], "Part name": item['Part name'],
+                            "Qty": 1, "Unit": item['Unit'], "VAT": 8,
+                            "Unit Price": float(item.get('Giá bán', 0)), "%Dist": 0.0, "Xoá": False
+                        })
+                    else:
+                        not_found.append(code)
+                if not_found:
+                    st.error(f"❌ Không tìm thấy: {', '.join(not_found)}")
+                st.rerun()
+
+            # --- 3_3: TABLE DANH SÁCH CHI TIẾT ---
             if st.session_state.cart:
                 st.markdown("### 📋 Danh sách chi tiết")
                 df_cart = pd.DataFrame(st.session_state.cart)
                 df_cart.insert(0, 'No.', range(1, len(df_cart) + 1))
                 df_cart['Amount'] = df_cart['Unit Price'] * df_cart['Qty'] * (1 - df_cart['%Dist']/100)
                 
-                # Sắp xếp hiển thị: No -> Part No -> Name -> Qty -> Unit -> VAT -> Price -> %Dist -> Amount -> Xoá
+                # Cột theo thứ tự yêu cầu
                 display_cols = ["No.", "Part Number", "Part name", "Qty", "Unit", "VAT", "Unit Price", "%Dist", "Amount", "Xoá"]
                 
                 edited_df = st.data_editor(
@@ -120,12 +136,12 @@ def main():
                         "Part Number": st.column_config.TextColumn(disabled=True),
                         "Part name": st.column_config.TextColumn(disabled=True),
                         "Unit": st.column_config.TextColumn(disabled=True),
-                        "VAT": st.column_config.NumberColumn("VAT", format="%d", disabled=True),
+                        "VAT": st.column_config.NumberColumn("VAT", format="%d", disabled=True), # Số nguyên & Disable
                         "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True),
                         "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
-                        "Qty": st.column_config.NumberColumn(width=60, min_value=1),
-                        "%Dist": st.column_config.NumberColumn(width=80, format="%d%%"),
-                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50) # Cột xoá nằm cuối
+                        "Qty": st.column_config.NumberColumn(width=60, min_value=1), # Cho phép sửa
+                        "%Dist": st.column_config.NumberColumn(width=80, format="%d%%"), # Cho phép sửa
+                        "Xoá": st.column_config.CheckboxColumn("Xoá", width=50) # Cột xoá cuối
                     },
                     use_container_width=True, hide_index=True, key="cart_editor"
                 )
@@ -135,28 +151,27 @@ def main():
                     for i, row in edited_df.iterrows():
                         if not row['Xoá']:
                             item = st.session_state.cart[i].copy()
-                            item['Qty'] = row['Qty']
-                            item['%Dist'] = row['%Dist']
+                            item['Qty'] = row['Qty']; item['%Dist'] = row['%Dist']
                             new_cart.append(item)
-                    st.session_state.cart = new_cart
-                    st.rerun()
+                    st.session_state.cart = new_cart; st.rerun()
 
-                # --- BẢNG TỔNG KẾT ---
+                # --- 3_4: TÍNH NĂNG TỔNG KẾT BÁO GIÁ ---
                 st.divider()
                 total_amt = df_cart['Amount'].sum()
                 
                 _, col_calc = st.columns([2, 1.5])
                 with col_calc:
                     st.markdown("#### Tổng kết báo giá")
+                    # Nhập bên ngoài
                     ship_val = st.number_input("Nhập Shipment Cost (VND):", value=float(st.session_state.ship_cost), step=1000.0, format="%.0f")
                     if ship_val != st.session_state.ship_cost:
-                        st.session_state.ship_cost = ship_val
-                        st.rerun()
+                        st.session_state.ship_cost = ship_val; st.rerun()
 
                     sub_total = total_amt + st.session_state.ship_cost
                     vat_calc = sub_total * 0.08
                     grand_total = sub_total + vat_calc
 
+                    # Đưa vào table thẳng hàng & disable
                     summary_data = {
                         "Nội dung": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT (8%)", "GRAND TOTAL"],
                         "Số tiền (VND)": [f"{total_amt:,.0f}", f"{st.session_state.ship_cost:,.0f}", 
@@ -164,19 +179,21 @@ def main():
                     }
                     st.table(pd.DataFrame(summary_data))
                 
-                st.button("💾 Lưu báo giá", use_container_width=True, type="primary")
+                # --- 3_5: NÚT LƯU BÁO GIÁ ---
+                st.button("💾 Lưu Báo Giá", use_container_width=True, type="primary")
 
+        # --- 4: ORDER MANAGEMENT ---
         elif st.session_state.sub_action == "search":
             st.subheader("🔍 Order Management")
-            # Tạo 3 Tab theo yêu cầu
-            tab1, tab2, tab3 = st.tabs(["📄 Quotations", "🚚 Offers_Tracking", "📊 SP_Report"])
+            # 4_1, 4_2, 4_3: Ba tab con
+            tab_q, tab_t, tab_r = st.tabs(["📄 Quotations", "🚚 Offers_Tracking", "📊 SP_Report"])
             
-            with tab1:
-                st.write("Danh sách các bản chào giá (Quotations) sẽ hiển thị ở đây.")
-            with tab2:
-                st.write("Theo dõi trạng thái đơn hàng (Offers_Tracking) sẽ hiển thị ở đây.")
-            with tab3:
-                st.write("Báo cáo chi tiết phụ tùng (SP_Report) sẽ hiển thị ở đây.")
+            with tab_q:
+                st.info("Nơi lưu trữ các báo giá từ trang 'Tạo Báo Giá' (Database link required)")
+            with tab_t:
+                st.info("Theo dõi đơn hàng đã xác nhận")
+            with tab_r:
+                st.info("Báo cáo số liệu")
 
     elif menu_selection == "🗂️ Master Data":
         st.dataframe(df_sp, use_container_width=True)
