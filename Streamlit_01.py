@@ -27,10 +27,14 @@ def load_all_data():
         df_h_stored = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Header")
         df_d_stored = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
         
-        # Ép kiểu Offer_No sang string để so sánh chính xác
+        # Đồng bộ Offer_No và xử lý cột Status nếu chưa có trong DataFrame
         for df in [df_h_stored, df_d_stored]:
             if df is not None and 'Offer_No' in df.columns:
                 df['Offer_No'] = df['Offer_No'].astype(str).str.strip()
+        
+        if df_h_stored is not None and 'Status' not in df_h_stored.columns:
+            df_h_stored['Status'] = "Draft" # Tạo cột tạm nếu Sheets chưa có
+            
         return [df_sp, df_mst, df_con, df_mac, df_staff, df_h_stored, df_d_stored]
     except Exception as e:
         return [None] * 7
@@ -68,22 +72,21 @@ def main():
 
     st.write("---")
 
-    # --- TAB TẠO BÁO GIÁ (Giữ nguyên) ---
+    # --- TAB TẠO BÁO GIÁ (Giữ nguyên logic cũ nhưng thêm Status mặc định) ---
     if st.session_state.current_tab == "Tạo báo giá":
-        st.info("Phần này đang được giữ nguyên code.")
+        st.info("Phần này đang được giữ nguyên code theo yêu cầu của bạn.")
 
-    # --- TAB ORDER MANAGEMENT (TẬP TRUNG FIX LỖI UPDATE) ---
+    # --- TAB ORDER MANAGEMENT (FIXED EDIT + STATUS COLUMN) ---
     elif st.session_state.current_tab == "Order Management":
         sub_tab = st.radio("Chế độ:", ["Quotation", "Offers_Tracking", "SP_Report"], horizontal=True)
         
         if sub_tab == "Quotation":
+            # Hiển thị bảng Header bao gồm cột Status
             st.dataframe(df_h_stored, use_container_width=True, hide_index=True)
             
-            # Chọn Offer No
             target_id = st.selectbox("Chọn Offer No để xử lý:", [""] + list(df_h_stored['Offer_No'].unique()), key="sel_target")
             
             if target_id:
-                # Dùng container để quản lý trạng thái Edit
                 if f"edit_{target_id}" not in st.session_state:
                     st.session_state[f"edit_{target_id}"] = False
                 
@@ -91,7 +94,6 @@ def main():
                 with col_e:
                     if st.button("📝 Edit", use_container_width=True):
                         st.session_state[f"edit_{target_id}"] = True
-                        # Load dữ liệu vào session một lần duy nhất khi nhấn Edit
                         det = df_d_stored[df_d_stored['Offer_No'] == target_id].copy()
                         det['Xoá'] = False
                         for col in ['Qty', 'Unit_Price', 'VAT_Rate', 'Discount_Percent']:
@@ -101,11 +103,15 @@ def main():
                 with col_c:
                     st.button("✅ Confirm", use_container_width=True)
 
-                # CHẾ ĐỘ CHỈNH SỬA
                 if st.session_state[f"edit_{target_id}"]:
                     st.divider()
                     st.subheader(f"🛠️ Chỉnh sửa báo giá: {target_id}")
                     
+                    # Thêm lựa chọn thay đổi trạng thái (Status) ngay trong khi Edit
+                    current_status = df_h_stored[df_h_stored['Offer_No'] == target_id]['Status'].iloc[0]
+                    new_status = st.selectbox("📌 Trạng thái báo giá:", ["Draft", "Sent", "Confirmed", "Cancelled"], 
+                                             index=["Draft", "Sent", "Confirmed", "Cancelled"].index(current_status) if current_status in ["Draft", "Sent", "Confirmed", "Cancelled"] else 0)
+
                     # 1. Ô thêm hàng mới
                     c_s1, c_s2 = st.columns([3, 1])
                     with c_s1:
@@ -124,8 +130,7 @@ def main():
                                 }])
                                 st.session_state[f"data_{target_id}"] = pd.concat([st.session_state[f"data_{target_id}"], new_row], ignore_index=True)
                                 st.rerun()
-                            else:
-                                st.error("Mã không tồn tại!")
+                            else: st.error("Mã không tồn tại!")
 
                     # 2. Bảng Editor
                     curr_data = st.session_state[f"data_{target_id}"]
@@ -144,12 +149,11 @@ def main():
                         key=f"editor_{target_id}"
                     )
 
-                    # Cập nhật session khi người dùng sửa trực tiếp trên bảng
                     if not edited_result.equals(curr_data[display_cols]):
                         st.session_state[f"data_{target_id}"] = edited_result[~edited_result['Xoá']].copy()
                         st.rerun()
 
-                    # 3. Tổng kết chi tiết (5 hàng)
+                    # 3. Tổng kết chi tiết
                     st.write("### 📊 Tổng kết báo giá")
                     h_row = df_h_stored[df_h_stored['Offer_No'] == target_id].iloc[0]
                     
@@ -165,29 +169,23 @@ def main():
                     })
                     st.table(summary_tbl)
 
-                    # 4. NÚT UPDATE - QUAN TRỌNG: Sửa lỗi mất dữ liệu
+                    # 4. NÚT UPDATE
                     if st.button("💾 UPDATE & SAVE TO SYSTEM", use_container_width=True, type="primary"):
                         try:
-                            # Chuẩn bị dữ liệu chi tiết cuối cùng
                             final_d = st.session_state[f"data_{target_id}"].copy()
                             final_d = final_d.drop(columns=['Xoá', 'Amount'], errors='ignore')
                             
-                            # Cập nhật Header dataframe
-                            df_h_stored.loc[df_h_stored['Offer_No'] == target_id, ['Total_Amount', 'VAT_Amount', 'Grand_Total']] = [t_amt, v_amt, g_total]
+                            # CẬP NHẬT HEADER (Bao gồm cả cột STATUS)
+                            df_h_stored.loc[df_h_stored['Offer_No'] == target_id, ['Total_Amount', 'VAT_Amount', 'Grand_Total', 'Status']] = [t_amt, v_amt, g_total, new_status]
                             
-                            # Cập nhật Details dataframe (Lọc bỏ cũ, thêm mới)
-                            # Đảm bảo target_id được ép kiểu string để filter chính xác
                             df_d_final = pd.concat([df_d_stored[df_d_stored['Offer_No'] != str(target_id)], final_d], ignore_index=True)
                             
-                            # Thực hiện lưu đồng thời
                             update_sheet("Offer_Header", df_h_stored)
                             update_sheet("Offer_Details", df_d_final)
                             
                             st.success(f"✅ Đã cập nhật Offer {target_id} thành công!")
-                            # Xoá cache session sau khi lưu xong
                             st.session_state[f"edit_{target_id}"] = False
-                            st.cache_data.clear()
-                            st.rerun()
+                            st.cache_data.clear(); st.rerun()
                         except Exception as e:
                             st.error(f"Lỗi khi lưu dữ liệu: {e}")
 
