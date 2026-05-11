@@ -57,7 +57,7 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # Lấy Tax Code từ App (đảm bảo hiển thị đủ 10 chữ số)
+        # Lấy Tax Code từ App
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
@@ -172,7 +172,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                 try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     
-                    # Tạo dữ liệu mới (Tax_Code ép kiểu string bình thường)
+                    # 1. Tạo dữ liệu mới
                     new_rows = []
                     for idx, row in edited_df[edited_df["Xóa dòng"] == False].iterrows():
                         new_rows.append({
@@ -180,7 +180,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "Offer_Date": str(off_date),
                             "Customer_Name": selected_name,
                             "Customer_No": str(c_no),
-                            "Tax_Code": str(t_code_display), # Chỉ chuyển thành String đơn thuần
+                            "Tax_Code": str(t_code_display), # Đảm bảo là string
                             "Address": addr,
                             "Contact_Person": contact_person,
                             "Officer": officer,
@@ -202,25 +202,28 @@ if df_mst is not None and option == "Spare Part Quotation":
                         })
                     df_new = pd.DataFrame(new_rows)
                     
-                    # Đọc và ghép dữ liệu (Làm mới cache để không mất dữ liệu cũ)
+                    # 2. Đọc dữ liệu hiện tại - ÉP KIỂU STRING TOÀN BỘ CỘT KHI ĐỌC
                     st.cache_data.clear()
                     existing_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
                     
                     if existing_data is not None and not existing_data.empty:
-                        # Ép kiểu Offer_No để lọc trùng
+                        # Quan trọng: Ép toàn bộ Offer_No và Tax_Code về string để không bị format sai
                         existing_data["Offer_No"] = existing_data["Offer_No"].astype(str).str.strip()
+                        if "Tax_Code" in existing_data.columns:
+                            existing_data["Tax_Code"] = existing_data["Tax_Code"].astype(str)
+                        
                         current_no = str(offer_no).strip()
                         df_others = existing_data[existing_data["Offer_No"] != current_no]
                         
-                        # Đảm bảo cột Tax_Code ở các dòng cũ cũng là String để giữ số 0
-                        if "Tax_Code" in df_others.columns:
-                            df_others["Tax_Code"] = df_others["Tax_Code"].astype(str)
-
+                        # Ghép dữ liệu
                         updated_df = pd.concat([df_others, df_new], ignore_index=True)
                     else:
                         updated_df = df_new
 
-                    # Ghi đè lại toàn bộ Sheet
+                    # 3. Ép kiểu cột Tax_Code lần cuối trước khi ghi đè
+                    updated_df["Tax_Code"] = updated_df["Tax_Code"].astype(str)
+
+                    # 4. Ghi đè lại toàn bộ Sheet
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
                     
                     st.success(f"Quotation {offer_no} saved successfully!")
