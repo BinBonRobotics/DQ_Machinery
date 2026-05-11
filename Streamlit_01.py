@@ -6,7 +6,7 @@ from datetime import datetime
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(layout="wide", page_title="Spare Part Quotation System")
 
-# URL Google Sheet
+# URL Google Sheet của bạn
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8/edit#gid=903775380"
 
 # --- 2. HÀM LOAD DỮ LIỆU ---
@@ -21,12 +21,12 @@ def load_data():
         sp = conn.read(spreadsheet=SHEET_URL, worksheet="SP_List").dropna(how='all')
         return mst, contact, staff, machines, sp
     except Exception as e:
-        st.error(f"Lỗi kết nối: {e}")
+        st.error(f"Lỗi kết nối Sheet: {e}")
         return None, None, None, None, None
 
 df_mst, df_contact, df_staff, df_machines, df_sp = load_data()
 
-# Khởi tạo trạng thái
+# Khởi tạo trạng thái App
 if 'cart' not in st.session_state: st.session_state.cart = []
 if 'page_view' not in st.session_state: st.session_state.page_view = "New"
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
@@ -36,7 +36,7 @@ if 'shipment_cost' not in st.session_state: st.session_state.shipment_cost = 0
 with st.sidebar:
     st.header("MENU")
     option = st.radio("Lựa chọn:", ["Spare Part Quotation", "Service Quotation"])
-    if st.button("Refresh", use_container_width=True):
+    if st.button("Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
@@ -49,7 +49,7 @@ if df_mst is not None and option == "Spare Part Quotation":
     if st.session_state.page_view == "New":
         st.markdown("### New Spare Part Offer")
         
-        # --- OFFER HEADER ---
+        # --- THÔNG TIN KHÁCH HÀNG (HEADER) ---
         names = df_mst.iloc[:, 2].dropna().unique().tolist()
         selected_name = st.selectbox("Customer Name:", options=names)
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
@@ -57,15 +57,9 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # FIX TAX CODE: Luôn đảm bảo 10 ký tự
+        # Xử lý Tax Code 10 chữ số
         t_val = cust_row.iloc[5]
-        if pd.isna(t_val):
-            t_code_display = ""
-        else:
-            try:
-                t_code_display = str(int(float(t_val))).zfill(10)
-            except:
-                t_code_display = str(t_val).split('.')[0].zfill(10)
+        t_code_display = str(int(float(t_val))).zfill(10) if not pd.isna(t_val) else ""
         st.text_input("Tax Code:", value=t_code_display, disabled=True)
         
         addr = str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else ""
@@ -87,7 +81,7 @@ if df_mst is not None and option == "Spare Part Quotation":
         st.markdown("---")
         st.subheader("Offer Descriptions")
 
-        search_input = st.text_input("Search Part Number:", placeholder="2024956492;2031956280")
+        search_input = st.text_input("Search Part Number:", placeholder="Nhập mã cách nhau bằng dấu ;")
         
         if st.session_state.search_error:
             st.error(st.session_state.search_error)
@@ -127,31 +121,22 @@ if df_mst is not None and option == "Spare Part Quotation":
             st.session_state.shipment_cost = 0
             st.rerun()
 
-        # --- BẢNG DANH SÁCH LINH KIỆN ---
+        # --- BẢNG GIỎ HÀNG ---
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
             df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Discount"] / 100)).astype(int)
-            df_cart["Unit Price"] = df_cart["Unit Price"].astype(int)
             df_cart.insert(0, "No", range(1, len(df_cart) + 1))
             df_cart["Xóa dòng"] = False
 
             edited_df = st.data_editor(
                 df_cart,
                 column_config={
-                    "No": st.column_config.NumberColumn(disabled=True),
-                    "Part Number": st.column_config.TextColumn(disabled=True),
-                    "Part Name": st.column_config.TextColumn(disabled=True),
-                    "Qty": st.column_config.NumberColumn(min_value=1),
-                    "Unit": st.column_config.TextColumn(disabled=True),
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True),
-                    "% Discount": st.column_config.NumberColumn(min_value=0, max_value=100, format="%d%%"),
                     "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
                     "Xóa dòng": st.column_config.CheckboxColumn()
                 },
-                hide_index=True,
-                use_container_width=True,
-                key="editor"
+                hide_index=True, use_container_width=True, key="editor"
             )
 
             if not edited_df.equals(df_cart):
@@ -159,71 +144,78 @@ if df_mst is not None and option == "Spare Part Quotation":
                 st.session_state.cart = new_cart
                 st.rerun()
 
-            # --- TỔNG KẾT CHI PHÍ ---
+            # --- TỔNG KẾT CHI PHÍ (SUMMARY TABLE) ---
             st.markdown("---")
             col_sum1, col_sum2 = st.columns([6, 4])
-            
             with col_sum2:
                 total_amount = int(df_cart["Amount"].sum())
                 total_vat = int((df_cart["VAT"] * df_cart["Unit Price"] * df_cart["Qty"] / 100).sum())
-                shipment = st.number_input("Shipment Cost:", min_value=0, value=int(st.session_state.shipment_cost), step=1000, format="%d")
+                shipment = st.number_input("Shipment Cost:", min_value=0, value=int(st.session_state.shipment_cost))
                 st.session_state.shipment_cost = shipment
                 sub_total = total_amount + shipment
                 grand_total = sub_total + total_vat
 
-                summary_data = {
+                df_summary = pd.DataFrame({
                     "Description": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT Total", "Grand Total"],
                     "Value": [total_amount, shipment, sub_total, total_vat, grand_total]
-                }
-                df_summary = pd.DataFrame(summary_data)
+                })
                 st.table(df_summary.style.format({"Value": "{:,.0f}"}))
 
-            # --- NÚT BẤM LƯU & PRINT ---
+            # --- NÚT SAVE QUOTATION (CẬP NHẬT MAPPING) ---
             col_save1, col_save2, _ = st.columns([1.5, 1.5, 7])
-            
             if col_save1.button("Save Quotation", type="primary", use_container_width=True):
                 try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     
-                    # 1. Chuẩn bị Header Data
-                    header_row = pd.DataFrame([{
-                        "Offer No": offer_no, 
-                        "Date": str(off_date), 
-                        "Customer No": c_no,
-                        "Customer Name": selected_name, 
-                        "Tax Code": t_code_display,
-                        "Officer": officer, 
-                        "Grand Total": grand_total
-                    }])
+                    # Tạo danh sách các dòng dữ liệu dựa trên Mapping bạn cung cấp
+                    new_rows = []
+                    for idx, row in edited_df[edited_df["Xóa dòng"] == False].iterrows():
+                        new_rows.append({
+                            "Offer_No": offer_no,               # Offer No -> Offer_No
+                            "Offer_Date": str(off_date),        # Offer Date -> Offer_Date
+                            "Customer_Name": selected_name,     # Customer Name -> Customer_Name
+                            "Cust_No": c_no,                    # Customer No -> Cust_No
+                            "Tax_Code": t_code_display,         # Tax Code -> Tax_Code
+                            "Address": addr,                    # Address -> Address
+                            "Contact_Person": contact_person,   # Contact Person -> Contact_Person
+                            "Officer": officer,                 # Officer -> Officer
+                            "Machine_Number": machine_no,       # Machine Number -> Machine_Number
+                            "Ordinal_Number": row["No"],        # No -> Ordinal_Number
+                            "Part_Number": row["Part Number"],  # Part Number -> Part_Number
+                            "Part_Name": row["Part Name"],      # Part Name -> Part_Name
+                            "Qty": row["Qty"],                  # Qty -> Qty
+                            "Unit": row["Unit"],                # Unit -> Unit
+                            "VAT_Rate": row["VAT"],             # VAT -> VAT_Rate
+                            "Unit_Price": row["Unit Price"],    # Unit Price -> Unit_Price
+                            "Discount_Percent": row["% Discount"], # % Discount -> Discount_Percent
+                            "Amount": row["Amount"],            # Amount -> Amount
+                            "Total_Amount": total_amount,       # Total Amount -> Total_Amount
+                            "Shipment_Cost": shipment,          # Shipment Cost -> Shipment_Cost
+                            "Sub_Total": sub_total,             # Sub-Total -> Sub_Total
+                            "VAT_Total": total_vat,             # VAT Total -> VAT_Total
+                            "Grand_Total": grand_total          # Grand Total -> Grand_Total
+                        })
                     
-                    # 2. Chuẩn bị Detail Data
-                    details_rows = edited_df[edited_df["Xóa dòng"] == False].copy()
-                    details_rows["Offer No"] = offer_no
-                    details_rows = details_rows.drop(columns=["No", "Xóa dòng"])
+                    df_to_save = pd.DataFrame(new_rows)
                     
-                    # Ghi dữ liệu bằng cách nối (Append)
+                    # Đọc dữ liệu cũ và nối dữ liệu mới
                     try:
-                        existing_header = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Header")
-                        updated_header = pd.concat([existing_header, header_row], ignore_index=True)
+                        existing_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
+                        updated_df = pd.concat([existing_data, df_to_save], ignore_index=True)
                     except:
-                        updated_header = header_row
-                        
-                    try:
-                        existing_details = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
-                        updated_details = pd.concat([existing_details, details_rows], ignore_index=True)
-                    except:
-                        updated_details = details_rows
+                        updated_df = df_to_save
 
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Header", data=updated_header)
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_details)
+                    # Lưu vào tab Offer_Details
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
                     
-                    st.success(f"Quotation {offer_no} saved successfully!")
-                    st.session_state.cart = [] 
+                    st.success(f"Quotation {offer_no} đã được lưu thành công vào tab Offer_Details!")
+                    st.session_state.cart = [] # Xóa giỏ hàng sau khi lưu
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Lỗi khi lưu dữ liệu: {e}")
 
             if col_save2.button("Print PDF", use_container_width=True):
-                st.info("Feature Coming Soon")
+                st.info("Tính năng Print PDF đang được phát triển.")
 
     elif st.session_state.page_view == "Manage":
-        st.info("Trang Order Management")
+        st.info("Trang Order Management đang được xây dựng.")
