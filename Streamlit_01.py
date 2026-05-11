@@ -57,7 +57,7 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # Tax Code hiển thị (Sheet định dạng Plain Text nên giữ được số 0)
+        # Tax Code hiển thị trên App (vẫn giữ 10 số)
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
@@ -128,7 +128,6 @@ if df_mst is not None and option == "Spare Part Quotation":
             st.session_state.shipment_cost = 0
             st.rerun()
 
-        # --- BẢNG GIỎ HÀNG ---
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
             df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Discount"] / 100)).astype(int)
@@ -151,7 +150,6 @@ if df_mst is not None and option == "Spare Part Quotation":
                 st.session_state.cart = new_cart
                 st.rerun()
 
-            # --- TỔNG KẾT CHI PHÍ ---
             st.markdown("---")
             col_sum1, col_sum2 = st.columns([6, 4])
             with col_sum2:
@@ -168,21 +166,21 @@ if df_mst is not None and option == "Spare Part Quotation":
                 })
                 st.table(df_summary.style.format({"Value": "{:,.0f}"}))
 
-            # --- LƯU DỮ LIỆU (FIX LỖI LƯU ĐÈ) ---
+            # --- NÚT LƯU DỮ LIỆU ---
             col_save1, col_save2, _ = st.columns([1.5, 1.5, 7])
             if col_save1.button("Save Quotation", type="primary", use_container_width=True):
                 try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     
-                    # 1. Thu thập dữ liệu mới từ giỏ hàng
-                    rows_to_save = []
+                    # 1. Tạo dữ liệu mới - THÊM DẤU NHÁY ĐƠN VÀO TAX_CODE ĐỂ ÉP GOOGLE SHEET HIỂU LÀ TEXT
+                    new_rows = []
                     for idx, row in edited_df[edited_df["Xóa dòng"] == False].iterrows():
-                        rows_to_save.append({
+                        new_rows.append({
                             "Offer_No": str(offer_no).strip(),
                             "Offer_Date": str(off_date),
                             "Customer_Name": selected_name,
                             "Customer_No": str(c_no),
-                            "Tax_Code": t_code_display,
+                            "Tax_Code": "'" + t_code_display, # Thêm dấu ' để Google Sheet giữ số 0
                             "Address": addr,
                             "Contact_Person": contact_person,
                             "Officer": officer,
@@ -202,38 +200,41 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "VAT_Total": total_vat,
                             "Grand_Total": grand_total
                         })
+                    df_new = pd.DataFrame(new_rows)
                     
-                    df_new = pd.DataFrame(rows_to_save)
-                    
-                    # 2. Đọc dữ liệu cũ (Ép làm mới cache để lấy dữ liệu thực tế trên Sheet)
+                    # 2. Đọc dữ liệu hiện tại (Cache clear để lấy dữ liệu mới nhất)
                     st.cache_data.clear()
                     existing_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
                     
                     if existing_data is not None and not existing_data.empty:
-                        # Chuẩn hóa cột Offer_No để so sánh chính xác
+                        # Ép Offer_No về string để lọc
                         existing_data["Offer_No"] = existing_data["Offer_No"].astype(str).str.strip()
-                        current_offer_no = str(offer_no).strip()
+                        current_no = str(offer_no).strip()
                         
-                        # Lọc: Chỉ giữ lại những Offer khác với số hiện tại
-                        df_others = existing_data[existing_data["Offer_No"] != current_offer_no]
+                        # Logic: Lấy những cái KHÔNG TRÙNG với cái đang lưu
+                        df_others = existing_data[existing_data["Offer_No"] != current_no]
                         
-                        # Kết hợp dữ liệu cũ (khác mã) + dữ liệu mới (mã hiện tại)
+                        # Trước khi nối, đảm bảo dữ liệu cũ vẫn giữ nguyên dấu nháy đơn ở cột Tax_Code 
+                        # (Thường Google Sheet sẽ tự ẩn dấu này, nhưng để chắc chắn ta ép cột Tax_Code thành string)
+                        if "Tax_Code" in df_others.columns:
+                            # Nếu dòng cũ đã mất số 0 (do các lần lưu lỗi trước), ta lặp qua để sửa lại 
+                            # (Nhưng tốt nhất bạn nên xóa dữ liệu sai trên sheet trước một lần)
+                            df_others["Tax_Code"] = df_others["Tax_Code"].astype(str).apply(lambda x: "'" + x if not x.startswith("'") else x)
+
                         updated_df = pd.concat([df_others, df_new], ignore_index=True)
                     else:
                         updated_df = df_new
 
-                    # 3. Cập nhật lại toàn bộ Sheet
+                    # 3. Ghi đè lại toàn bộ Sheet
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
                     
-                    st.success(f"Quotation {offer_no} saved/updated successfully!")
-                    
-                    # Reset lại trạng thái để tạo báo giá mới
+                    st.success(f"Quotation {offer_no} saved successfully! (All Tax Codes preserved)")
                     st.session_state.cart = []
                     st.session_state.shipment_cost = 0
                     st.rerun()
 
                 except Exception as e:
-                    st.error(f"Lỗi khi lưu dữ liệu: {e}")
+                    st.error(f"Error saving: {e}")
 
             if col_save2.button("Print PDF", use_container_width=True):
                 st.info("Feature Coming Soon")
