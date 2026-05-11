@@ -2,7 +2,6 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
-import json
 
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(layout="wide", page_title="Spare Part Quotation System")
@@ -34,25 +33,49 @@ if 'editing_mode' not in st.session_state: st.session_state.editing_mode = False
 if 'edit_header' not in st.session_state: st.session_state.edit_header = {}
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
 
-# --- 3. HÀM FIX LỖI PRINT PDF (Ghi vào ô I7) ---
-def fixed_print_pdf(off_no):
+# --- 3. HÀM PRINT PDF (GHI DỮ LIỆU VÀO TAB OFFER SAMPLE) ---
+def action_print_pdf(header_info, cart_items, shipment, vat_total):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # Đọc dữ liệu hiện tại của tab để lấy cấu trúc
-        current_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer Sample", ttl=0)
+        # Truy cập trực tiếp vào client của gspread để ghi từng ô
+        client = conn._instance._connector._client 
+        sh = client.open_by_url(SHEET_URL)
+        ws = sh.worksheet("Offer Sample")
         
-        # Tạo 1 DataFrame nhỏ chỉ để update ô I7
-        # Cột I là cột thứ 9. Hàng 7.
-        # Phương pháp an toàn: Update qua mảng dữ liệu
-        conn.update(
-            spreadsheet=SHEET_URL,
-            worksheet="Offer Sample",
-            data=pd.DataFrame([[off_no]]),
-            range="I7" 
-        )
-        st.success(f"Đã cập nhật Offer No {off_no} vào ô I7 thành công!")
+        # Xóa dữ liệu cũ vùng hàng hóa (A18:J50) để tránh bị đè dữ liệu cũ
+        ws.batch_clear(["A18:J50"])
+
+        # 1. Ghi thông tin Header theo đúng sơ đồ bạn gửi
+        ws.update_acell('I7', header_info['Offer_No'])
+        ws.update_acell('I5', header_info['Offer_Date'])
+        ws.update_acell('I10', header_info['Customer_Name'])
+        ws.update_acell('I11', header_info['Customer_No'])
+        ws.update_acell('I12', header_info['Machine_Number'])
+        # Vị trí Contact Person (B,C-12) thường ghi vào B12
+        ws.update_acell('B12', header_info['Contact_Person'])
+
+        # 2. Chuẩn bị dữ liệu bảng hàng hóa (bắt đầu từ hàng 18)
+        rows_to_print = []
+        for i, item in enumerate(cart_items, 1):
+            amount = int(item['Qty'] * item['Unit Price'] * (1 - item['% Discount'] / 100))
+            # Cấu trúc cột: A:No, B:Part No, C:Part Name, D:Qty, E:Unit, F:VAT(G), G:Price, H:%Disc, J:Amount
+            rows_to_print.append([
+                i, item['Part Number'], item['Part Name'], item['Qty'], item['Unit'], 
+                "", item['Unit Price'], item['% Discount'], "", amount
+            ])
+            # Ghi VAT vào cột V (cột số 22) theo yêu cầu ảnh của bạn
+            ws.update_cell(17 + i, 22, item['VAT']) 
+
+        if rows_to_print:
+            ws.update(range_name=f'A18:J{17 + len(rows_to_print)}', values=rows_to_print)
+
+        # 3. Ghi Shipment và VAT Total
+        ws.update_acell('J26', shipment)
+        ws.update_acell('J28', vat_total)
+
+        st.success("✅ Đã xuất dữ liệu sang tab 'Offer Sample'. Bạn có thể mở file để in PDF.")
     except Exception as e:
-        st.error(f"Lỗi khi ghi dữ liệu: {e}. Vui lòng kiểm tra quyền ghi của Sheet.")
+        st.error(f"Lỗi khi Print PDF: {e}")
 
 # --- 4. CALLBACK EDIT QUOTATION ---
 def on_edit_click():
@@ -103,7 +126,7 @@ if df_mst is not None and option == "Spare Part Quotation":
     if col_b2.button("Order Management", use_container_width=True): st.session_state.page_view = "Manage"
 
     if st.session_state.page_view == "New":
-        # --- HEADER --- (Giữ nguyên bản gốc)
+        # --- HEADER ---
         names = df_mst.iloc[:, 2].dropna().unique().tolist()
         default_name = st.session_state.edit_header.get("Customer_Name", names[0] if names else "")
         selected_name = st.selectbox("Customer Name:", options=names, index=names.index(default_name) if default_name in names else 0)
@@ -216,15 +239,19 @@ if df_mst is not None and option == "Spare Part Quotation":
                     upd = pd.concat([exist[exist["Offer_No"].astype(str) != str(offer_no)], pd.DataFrame(rows)], ignore_index=True)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=upd)
                     st.success("Đã lưu!"); st.session_state.cart = []; st.session_state.editing_mode = False; st.rerun()
-                except Exception as e: st.error(f"Lỗi: {e}")
+                except Exception as e: st.error(f"Lỗi khi ghi dữ liệu: {e}")
 
             col_f1, col_f2, col_f3, _ = st.columns([1.5, 1.5, 2, 5])
             if col_f1.button("Save Quotation", type="primary", use_container_width=True): save_final("")
             
-            # SỬA LỖI NÚT PRINT PDF TẠI ĐÂY
-            if col_f2.button("Print PDF", use_container_width=True): 
-                fixed_print_pdf(offer_no)
-                
+            # --- NÚT PRINT PDF ĐÃ SỬA LỖI ---
+            if col_f2.button("Print PDF", use_container_width=True):
+                header_data = {
+                    "Offer_No": offer_no, "Offer_Date": str(off_date), "Customer_Name": selected_name,
+                    "Customer_No": c_no, "Contact_Person": contact_person, "Machine_Number": machine_no
+                }
+                action_print_pdf(header_data, st.session_state.cart, shipment, total_vat)
+
             if st.session_state.editing_mode and col_f3.button("Confirmed Quotation", use_container_width=True): save_final("confirmed")
 
         # --- SEARCH EDIT ---
