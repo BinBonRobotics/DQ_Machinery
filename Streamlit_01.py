@@ -57,12 +57,11 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # FIX TAX CODE: Format chuẩn 10 chữ số dạng chuỗi
+        # Tax Code hiển thị 10 chữ số
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
         else:
-            # Chuyển về chuỗi và thêm số 0 ở đầu nếu thiếu
             try:
                 t_code_display = str(int(float(t_val))).zfill(10)
             except:
@@ -129,7 +128,7 @@ if df_mst is not None and option == "Spare Part Quotation":
             st.session_state.shipment_cost = 0
             st.rerun()
 
-        # --- BẢNG DANH SÁCH LINH KIỆN ---
+        # --- BẢNG GIỎ HÀNG ---
         if st.session_state.cart:
             df_cart = pd.DataFrame(st.session_state.cart)
             df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Discount"] / 100)).astype(int)
@@ -142,6 +141,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
                     "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True),
                     "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
+                    "Xóa dòng": st.column_config.CheckboxColumn()
                 },
                 hide_index=True, use_container_width=True, key="editor"
             )
@@ -151,7 +151,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                 st.session_state.cart = new_cart
                 st.rerun()
 
-            # --- TỔNG KẾT CHI PHÍ ---
+            # --- TỔNG KẾT ---
             st.markdown("---")
             col_sum1, col_sum2 = st.columns([6, 4])
             with col_sum2:
@@ -168,7 +168,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                 })
                 st.table(df_summary.style.format({"Value": "{:,.0f}"}))
 
-            # --- LƯU DỮ LIỆU (MAPPING & TAX CODE FIX) ---
+            # --- LƯU DỮ LIỆU ---
             col_save1, col_save2, _ = st.columns([1.5, 1.5, 7])
             if col_save1.button("Save Quotation", type="primary", use_container_width=True):
                 try:
@@ -179,8 +179,8 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "Offer_No": str(offer_no),
                             "Offer_Date": str(off_date),
                             "Customer_Name": selected_name,
-                            "Customer_No": str(c_no),        # Cập nhật mapping mới
-                            "Tax_Code": "'" + t_code_display, # Thêm dấu ' để Google Sheet hiểu là chuỗi, giữ số 0
+                            "Customer_No": str(c_no),
+                            "Tax_Code": t_code_display, # Đã loại bỏ dấu '
                             "Address": addr,
                             "Contact_Person": contact_person,
                             "Officer": officer,
@@ -203,9 +203,11 @@ if df_mst is not None and option == "Spare Part Quotation":
                     
                     df_to_save = pd.DataFrame(new_rows)
                     
+                    # Đảm bảo Tax_Code lưu dưới dạng string để giữ số 0
+                    df_to_save["Tax_Code"] = df_to_save["Tax_Code"].astype(str)
+
                     try:
                         existing_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
-                        # Chuyển Tax_Code cũ về string để tránh lỗi khi nối (concat)
                         if "Tax_Code" in existing_data.columns:
                             existing_data["Tax_Code"] = existing_data["Tax_Code"].astype(str)
                         updated_df = pd.concat([existing_data, df_to_save], ignore_index=True)
@@ -213,8 +215,11 @@ if df_mst is not None and option == "Spare Part Quotation":
                         updated_df = df_to_save
 
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
-                    st.success(f"Quotation {offer_no} saved and Tax Code formatted!")
-                    st.session_state.cart = [] 
+                    st.success(f"Quotation {offer_no} saved successfully!")
+                    
+                    # RESET GIỎ HÀNG SAU KHI LƯU
+                    st.session_state.cart = []
+                    st.session_state.shipment_cost = 0
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error saving: {e}")
