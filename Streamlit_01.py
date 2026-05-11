@@ -57,7 +57,7 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # Tax Code hiển thị 10 chữ số
+        # Tax Code hiển thị
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
@@ -180,7 +180,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "Offer_Date": str(off_date),
                             "Customer_Name": selected_name,
                             "Customer_No": str(c_no),
-                            "Tax_Code": t_code_display, # Đã loại bỏ dấu '
+                            "Tax_Code": t_code_display, # Giữ nguyên chuỗi để số 0 hiển thị (do Sheet đã chỉnh Plain Text)
                             "Address": addr,
                             "Contact_Person": contact_person,
                             "Officer": officer,
@@ -203,24 +203,28 @@ if df_mst is not None and option == "Spare Part Quotation":
                     
                     df_to_save = pd.DataFrame(new_rows)
                     
-                    # Đảm bảo Tax_Code lưu dưới dạng string để giữ số 0
-                    df_to_save["Tax_Code"] = df_to_save["Tax_Code"].astype(str)
-
+                    # 1. Đọc dữ liệu hiện tại
                     try:
                         existing_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
-                        if "Tax_Code" in existing_data.columns:
-                            existing_data["Tax_Code"] = existing_data["Tax_Code"].astype(str)
-                        updated_df = pd.concat([existing_data, df_to_save], ignore_index=True)
+                        
+                        # 2. Xử lý Logic: Nếu trùng Offer_No thì xoá dữ liệu cũ của Offer_No đó
+                        if not existing_data.empty and "Offer_No" in existing_data.columns:
+                            # Chuyển cột Offer_No về string để so sánh chính xác
+                            existing_data["Offer_No"] = existing_data["Offer_No"].astype(str)
+                            # Lọc bỏ những dòng có Offer_No trùng với offer_no đang lưu
+                            filtered_data = existing_data[existing_data["Offer_No"] != str(offer_no)]
+                            # Ghép nối dữ liệu đã lọc với dữ liệu mới
+                            updated_df = pd.concat([filtered_data, df_to_save], ignore_index=True)
+                        else:
+                            updated_df = df_to_save
                     except:
                         updated_df = df_to_save
 
+                    # 3. Cập nhật lại toàn bộ Sheet (Ghi đè bằng DataFrame đã xử lý)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
-                    st.success(f"Quotation {offer_no} saved successfully!")
                     
-                    # RESET GIỎ HÀNG SAU KHI LƯU
-                    st.session_state.cart = []
-                    st.session_state.shipment_cost = 0
-                    st.rerun()
+                    st.success(f"Quotation {offer_no} saved successfully (Updated)!")
+                    # Lưu ý: Không xóa giỏ hàng ở đây để bạn có thể tiếp tục chỉnh sửa
                 except Exception as e:
                     st.error(f"Error saving: {e}")
 
