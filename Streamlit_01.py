@@ -57,12 +57,13 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # Lấy Tax Code từ App
+        # Xử lý Tax Code hiển thị trên App
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
         else:
             try:
+                # Chuyển về số nguyên rồi fill 10 số 0 để hiển thị đẹp trên giao diện
                 t_code_display = str(int(float(t_val))).zfill(10)
             except:
                 t_code_display = str(t_val).split('.')[0].zfill(10)
@@ -166,21 +167,24 @@ if df_mst is not None and option == "Spare Part Quotation":
                 })
                 st.table(df_summary.style.format({"Value": "{:,.0f}"}))
 
-            # --- NÚT LƯU DỮ LIỆU ---
+            # --- NÚT LƯU DỮ LIỆU (ĐÃ SỬA) ---
             col_save1, col_save2, _ = st.columns([1.5, 1.5, 7])
             if col_save1.button("Save Quotation", type="primary", use_container_width=True):
                 try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     
-                    # 1. Tạo dữ liệu mới
+                    # 1. Tạo dữ liệu mới từ các ô nhập liệu
                     new_rows = []
+                    # Giải pháp triệt để cho số 0: Thêm dấu nháy đơn "'" phía trước mã số thuế
+                    tax_code_to_save = f"'{t_code_display}" 
+                    
                     for idx, row in edited_df[edited_df["Xóa dòng"] == False].iterrows():
                         new_rows.append({
                             "Offer_No": str(offer_no).strip(),
                             "Offer_Date": str(off_date),
                             "Customer_Name": selected_name,
                             "Customer_No": str(c_no),
-                            "Tax_Code": str(t_code_display), # Đảm bảo là string
+                            "Tax_Code": tax_code_to_save, 
                             "Address": addr,
                             "Contact_Person": contact_person,
                             "Officer": officer,
@@ -198,32 +202,30 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "Shipment_Cost": shipment,
                             "Sub_Total": sub_total,
                             "VAT_Total": total_vat,
-                            "Grand_Total": grand_total
+                            "Grand_Total": grand_total,
+                            "Status": "" # Cột Status mới cho dòng mới (để trống)
                         })
                     df_new = pd.DataFrame(new_rows)
                     
-                    # 2. Đọc dữ liệu hiện tại - ÉP KIỂU STRING TOÀN BỘ CỘT KHI ĐỌC
+                    # 2. Đọc dữ liệu hiện tại từ Sheet "Offer_Details"
                     st.cache_data.clear()
                     existing_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
                     
                     if existing_data is not None and not existing_data.empty:
-                        # Quan trọng: Ép toàn bộ Offer_No và Tax_Code về string để không bị format sai
-                        existing_data["Offer_No"] = existing_data["Offer_No"].astype(str).str.strip()
-                        if "Tax_Code" in existing_data.columns:
-                            existing_data["Tax_Code"] = existing_data["Tax_Code"].astype(str)
-                        
+                        # Đảm bảo có cột Status trong dữ liệu cũ để không bị mất
+                        if "Status" not in existing_data.columns:
+                            existing_data["Status"] = ""
+                            
+                        # Lọc bỏ các dòng cũ của chính Offer_No này (nếu có) để ghi đè/cập nhật
                         current_no = str(offer_no).strip()
-                        df_others = existing_data[existing_data["Offer_No"] != current_no]
+                        df_others = existing_data[existing_data["Offer_No"].astype(str) != current_no]
                         
-                        # Ghép dữ liệu
+                        # Ghép dữ liệu khác với dữ liệu mới
                         updated_df = pd.concat([df_others, df_new], ignore_index=True)
                     else:
                         updated_df = df_new
 
-                    # 3. Ép kiểu cột Tax_Code lần cuối trước khi ghi đè
-                    updated_df["Tax_Code"] = updated_df["Tax_Code"].astype(str)
-
-                    # 4. Ghi đè lại toàn bộ Sheet
+                    # 3. Ghi đè lại toàn bộ Sheet (Lúc này updated_df đã có cột Status)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
                     
                     st.success(f"Quotation {offer_no} saved successfully!")
