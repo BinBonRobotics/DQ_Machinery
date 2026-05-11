@@ -34,25 +34,31 @@ if 'editing_mode' not in st.session_state: st.session_state.editing_mode = False
 if 'edit_header' not in st.session_state: st.session_state.edit_header = {}
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
 
-# --- 3. HÀM PRINT PDF (CHỈ GHI OFFER_NO VÀO I7) ---
-def simple_print_to_i7(off_no):
+# --- 3. HÀM FIX LỖI PRINT PDF (Ghi vào ô I7) ---
+def fixed_print_pdf(off_no):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # Sử dụng gspread thông qua connection để ghi vào ô cụ thể
-        client = conn._conn.client
-        sh = client.open_by_url(SHEET_URL)
-        ws = sh.worksheet("Offer Sample")
-        ws.update_acell('I7', off_no)
-        st.success(f"Đã chuyển số báo giá {off_no} sang Tab Offer Sample (I7)")
+        # Đọc dữ liệu hiện tại của tab để lấy cấu trúc
+        current_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer Sample", ttl=0)
+        
+        # Tạo 1 DataFrame nhỏ chỉ để update ô I7
+        # Cột I là cột thứ 9. Hàng 7.
+        # Phương pháp an toàn: Update qua mảng dữ liệu
+        conn.update(
+            spreadsheet=SHEET_URL,
+            worksheet="Offer Sample",
+            data=pd.DataFrame([[off_no]]),
+            range="I7" 
+        )
+        st.success(f"Đã cập nhật Offer No {off_no} vào ô I7 thành công!")
     except Exception as e:
-        st.error(f"Lỗi khi thực hiện Print PDF: {e}")
+        st.error(f"Lỗi khi ghi dữ liệu: {e}. Vui lòng kiểm tra quyền ghi của Sheet.")
 
 # --- 4. CALLBACK EDIT QUOTATION ---
 def on_edit_click():
     display_val = st.session_state.get('selected_offer_to_edit')
     if not display_val: return
     target_no = display_val.split(" _ ")[0]
-    
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         all_offers = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=0)
@@ -97,7 +103,7 @@ if df_mst is not None and option == "Spare Part Quotation":
     if col_b2.button("Order Management", use_container_width=True): st.session_state.page_view = "Manage"
 
     if st.session_state.page_view == "New":
-        # --- HEADER ---
+        # --- HEADER --- (Giữ nguyên bản gốc)
         names = df_mst.iloc[:, 2].dropna().unique().tolist()
         default_name = st.session_state.edit_header.get("Customer_Name", names[0] if names else "")
         selected_name = st.selectbox("Customer Name:", options=names, index=names.index(default_name) if default_name in names else 0)
@@ -215,9 +221,9 @@ if df_mst is not None and option == "Spare Part Quotation":
             col_f1, col_f2, col_f3, _ = st.columns([1.5, 1.5, 2, 5])
             if col_f1.button("Save Quotation", type="primary", use_container_width=True): save_final("")
             
-            # --- CHỈ SỬA Ở ĐÂY: GỌI HÀM GHI VÀO I7 ---
-            if col_f2.button("Print PDF", use_container_width=True):
-                simple_print_to_i7(offer_no)
+            # SỬA LỖI NÚT PRINT PDF TẠI ĐÂY
+            if col_f2.button("Print PDF", use_container_width=True): 
+                fixed_print_pdf(offer_no)
                 
             if st.session_state.editing_mode and col_f3.button("Confirmed Quotation", use_container_width=True): save_final("confirmed")
 
