@@ -172,7 +172,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                 grand_total = sub_total + total_vat
 
                 summary_data = {
-                    "Description": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT", "Grand Total"],
+                    "Description": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT Total", "Grand Total"],
                     "Value": [total_amount, shipment, sub_total, total_vat, grand_total]
                 }
                 df_summary = pd.DataFrame(summary_data)
@@ -183,7 +183,6 @@ if df_mst is not None and option == "Spare Part Quotation":
             
             if col_save1.button("Save Quotation", type="primary", use_container_width=True):
                 try:
-                    # Sử dụng phương pháp append dữ liệu trực tiếp để tránh lỗi ghi đè tab
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     
                     # 1. Chuẩn bị Header Data
@@ -202,8 +201,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                     details_rows["Offer No"] = offer_no
                     details_rows = details_rows.drop(columns=["No", "Xóa dòng"])
                     
-                    # Ghi dữ liệu bằng cách nối (Append) vào dữ liệu hiện tại
-                    # Đọc dữ liệu cũ -> Nối dữ liệu mới -> Ghi lại toàn bộ (Đây là cách ổn định nhất cho streamlit-gsheets)
+                    # Ghi dữ liệu bằng cách nối (Append)
                     try:
                         existing_header = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Header")
                         updated_header = pd.concat([existing_header, header_row], ignore_index=True)
@@ -216,12 +214,11 @@ if df_mst is not None and option == "Spare Part Quotation":
                     except:
                         updated_details = details_rows
 
-                    # Cập nhật lại vào Sheet
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Header", data=updated_header)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_details)
                     
                     st.success(f"Quotation {offer_no} saved successfully!")
-                    st.session_state.cart = [] # Xóa giỏ hàng sau khi lưu thành công
+                    st.session_state.cart = [] 
                 except Exception as e:
                     st.error(f"Lỗi khi lưu dữ liệu: {e}")
 
