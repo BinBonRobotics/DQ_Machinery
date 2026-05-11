@@ -57,7 +57,7 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # Tax Code hiển thị trên App (vẫn giữ 10 số)
+        # Lấy Tax Code từ App (đảm bảo hiển thị đủ 10 chữ số)
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
@@ -172,7 +172,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                 try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     
-                    # 1. Tạo dữ liệu mới - THÊM DẤU NHÁY ĐƠN VÀO TAX_CODE ĐỂ ÉP GOOGLE SHEET HIỂU LÀ TEXT
+                    # Tạo dữ liệu mới (Tax_Code ép kiểu string bình thường)
                     new_rows = []
                     for idx, row in edited_df[edited_df["Xóa dòng"] == False].iterrows():
                         new_rows.append({
@@ -180,7 +180,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "Offer_Date": str(off_date),
                             "Customer_Name": selected_name,
                             "Customer_No": str(c_no),
-                            "Tax_Code": "'" + t_code_display, # Thêm dấu ' để Google Sheet giữ số 0
+                            "Tax_Code": str(t_code_display), # Chỉ chuyển thành String đơn thuần
                             "Address": addr,
                             "Contact_Person": contact_person,
                             "Officer": officer,
@@ -202,33 +202,28 @@ if df_mst is not None and option == "Spare Part Quotation":
                         })
                     df_new = pd.DataFrame(new_rows)
                     
-                    # 2. Đọc dữ liệu hiện tại (Cache clear để lấy dữ liệu mới nhất)
+                    # Đọc và ghép dữ liệu (Làm mới cache để không mất dữ liệu cũ)
                     st.cache_data.clear()
                     existing_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
                     
                     if existing_data is not None and not existing_data.empty:
-                        # Ép Offer_No về string để lọc
+                        # Ép kiểu Offer_No để lọc trùng
                         existing_data["Offer_No"] = existing_data["Offer_No"].astype(str).str.strip()
                         current_no = str(offer_no).strip()
-                        
-                        # Logic: Lấy những cái KHÔNG TRÙNG với cái đang lưu
                         df_others = existing_data[existing_data["Offer_No"] != current_no]
                         
-                        # Trước khi nối, đảm bảo dữ liệu cũ vẫn giữ nguyên dấu nháy đơn ở cột Tax_Code 
-                        # (Thường Google Sheet sẽ tự ẩn dấu này, nhưng để chắc chắn ta ép cột Tax_Code thành string)
+                        # Đảm bảo cột Tax_Code ở các dòng cũ cũng là String để giữ số 0
                         if "Tax_Code" in df_others.columns:
-                            # Nếu dòng cũ đã mất số 0 (do các lần lưu lỗi trước), ta lặp qua để sửa lại 
-                            # (Nhưng tốt nhất bạn nên xóa dữ liệu sai trên sheet trước một lần)
-                            df_others["Tax_Code"] = df_others["Tax_Code"].astype(str).apply(lambda x: "'" + x if not x.startswith("'") else x)
+                            df_others["Tax_Code"] = df_others["Tax_Code"].astype(str)
 
                         updated_df = pd.concat([df_others, df_new], ignore_index=True)
                     else:
                         updated_df = df_new
 
-                    # 3. Ghi đè lại toàn bộ Sheet
+                    # Ghi đè lại toàn bộ Sheet
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
                     
-                    st.success(f"Quotation {offer_no} saved successfully! (All Tax Codes preserved)")
+                    st.success(f"Quotation {offer_no} saved successfully!")
                     st.session_state.cart = []
                     st.session_state.shipment_cost = 0
                     st.rerun()
