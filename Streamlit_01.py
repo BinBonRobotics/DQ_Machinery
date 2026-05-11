@@ -34,27 +34,22 @@ if 'shipment_cost' not in st.session_state: st.session_state.shipment_cost = 0
 if 'editing_mode' not in st.session_state: st.session_state.editing_mode = False
 if 'edit_header' not in st.session_state: st.session_state.edit_header = {}
 
-# --- 3. CALLBACK XỬ LÝ EDIT (GIẢI QUYẾT LỖI TRỄ VÀ DOUBLE CLICK) ---
+# --- 3. CALLBACK XỬ LÝ EDIT ---
 def on_edit_click():
-    # Lấy Offer_No đang được chọn trong selectbox qua key 'selected_offer_to_edit'
     target_no = st.session_state.get('selected_offer_to_edit')
     if not target_no:
         return
 
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # Đọc dữ liệu mới nhất (ttl=0) để tránh lấy hàng cũ từ cache
         all_offers = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=0)
         edit_df = all_offers[all_offers["Offer_No"].astype(str) == str(target_no)]
         
         if not edit_df.empty:
             first_row = edit_df.iloc[0]
-            
-            # Xử lý Tax Code
             raw_tax = str(first_row["Tax_Code"])
             clean_tax = raw_tax[1:] if raw_tax.startswith("'") else raw_tax
 
-            # Cập nhật Header
             st.session_state.edit_header = {
                 "Customer_Name": first_row["Customer_Name"],
                 "Contact_Person": first_row["Contact_Person"],
@@ -65,7 +60,6 @@ def on_edit_click():
                 "Clean_Tax": clean_tax
             }
             
-            # Cập nhật Cart
             new_cart = []
             for _, r in edit_df.iterrows():
                 new_cart.append({
@@ -81,7 +75,6 @@ def on_edit_click():
             st.session_state.shipment_cost = int(first_row["Shipment_Cost"])
             st.session_state.editing_mode = True
             st.session_state.search_error = ""
-            # Chuyển view về New để hiển thị form edit
             st.session_state.page_view = "New"
         else:
             st.error(f"Không tìm thấy dữ liệu cho {target_no}")
@@ -226,9 +219,14 @@ if df_mst is not None and option == "Spare Part Quotation":
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     new_rows = []
                     tax_save = f"'{t_code_display}"
+                    
+                    # QUAN TRỌNG: Cập nhật Offer_Date thành ngày hiện tại nếu đang ở chế độ Edit
+                    current_save_date = str(datetime.now().date()) if st.session_state.editing_mode else str(off_date)
+                    
                     for idx, row in edited_df[edited_df["Xóa dòng"] == False].iterrows():
                         new_rows.append({
-                            "Offer_No": str(offer_no).strip(), "Offer_Date": str(off_date),
+                            "Offer_No": str(offer_no).strip(), 
+                            "Offer_Date": current_save_date, # Sử dụng ngày mới xác định ở trên
                             "Customer_Name": selected_name, "Customer_No": str(c_no), "Tax_Code": tax_save,
                             "Address": addr, "Contact_Person": contact_person, "Officer": officer,
                             "Machine_Number": machine_no, "Ordinal_Number": row["No"],
@@ -247,7 +245,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                     else: updated_df = df_new
 
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
-                    st.success(f"Quotation {offer_no} saved!"); st.session_state.editing_mode = False
+                    st.success(f"Quotation {offer_no} saved with date {current_save_date}!"); st.session_state.editing_mode = False
                     st.session_state.cart = []; st.session_state.edit_header = {}; st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
 
@@ -256,20 +254,15 @@ if df_mst is not None and option == "Spare Part Quotation":
             if st.session_state.editing_mode and col_save3.button("Confirmed Quotation", use_container_width=True): save_process("confirmed")
             if col_save2.button("Print PDF", use_container_width=True): st.info("Coming Soon")
 
-        # --- PHẦN EDIT QUOTATION (FIXED LOGIC) ---
+        # --- PHẦN EDIT QUOTATION ---
         st.markdown("---")
         st.subheader("Search & Edit Saved Quotation")
         try:
             conn = st.connection("gsheets", type=GSheetsConnection)
-            # Tăng TTL lên một chút để list ổn định, nhưng vẫn dùng TTL=0 khi nhấn nút Edit
             offer_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=60)
             if offer_data is not None and not offer_data.empty:
                 saved_list = sorted(offer_data["Offer_No"].astype(str).unique().tolist(), reverse=True)
-                
-                # Lưu lựa chọn vào session_state thông qua key
                 st.selectbox("Select Offer No:", options=saved_list, key="selected_offer_to_edit")
-                
-                # Gắn hàm on_edit_click vào nút bấm. Khi bấm 1 cái là chạy hàm trước rồi mới render.
                 st.button("Edit Quotation", use_container_width=True, on_click=on_edit_click)
             else:
                 st.warning("Hiện chưa có báo giá nào được lưu.")
