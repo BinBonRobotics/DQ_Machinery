@@ -57,11 +57,12 @@ if df_mst is not None and option == "Spare Part Quotation":
         c_no = str(cust_row.iloc[1]).split('.')[0]
         st.text_input("Customer No:", value=c_no, disabled=True)
         
-        # FIX TAX CODE: Hiển thị 10 chữ số
+        # FIX TAX CODE: Format chuẩn 10 chữ số dạng chuỗi
         t_val = cust_row.iloc[5]
         if pd.isna(t_val):
             t_code_display = ""
         else:
+            # Chuyển về chuỗi và thêm số 0 ở đầu nếu thiếu
             try:
                 t_code_display = str(int(float(t_val))).zfill(10)
             except:
@@ -128,5 +129,98 @@ if df_mst is not None and option == "Spare Part Quotation":
             st.session_state.shipment_cost = 0
             st.rerun()
 
-        # --- BẢNG GIỎ HÀNG ---
+        # --- BẢNG DANH SÁCH LINH KIỆN ---
         if st.session_state.cart:
+            df_cart = pd.DataFrame(st.session_state.cart)
+            df_cart["Amount"] = (df_cart["Qty"] * df_cart["Unit Price"] * (1 - df_cart["% Discount"] / 100)).astype(int)
+            df_cart.insert(0, "No", range(1, len(df_cart) + 1))
+            df_cart["Xóa dòng"] = False
+
+            edited_df = st.data_editor(
+                df_cart,
+                column_config={
+                    "VAT": st.column_config.NumberColumn(format="%d", disabled=True), 
+                    "Unit Price": st.column_config.NumberColumn(format="%,d", disabled=True),
+                    "Amount": st.column_config.NumberColumn(format="%,d", disabled=True),
+                },
+                hide_index=True, use_container_width=True, key="editor"
+            )
+
+            if not edited_df.equals(df_cart):
+                new_cart = edited_df[edited_df["Xóa dòng"] == False].drop(columns=["No", "Amount", "Xóa dòng"]).to_dict('records')
+                st.session_state.cart = new_cart
+                st.rerun()
+
+            # --- TỔNG KẾT CHI PHÍ ---
+            st.markdown("---")
+            col_sum1, col_sum2 = st.columns([6, 4])
+            with col_sum2:
+                total_amount = int(df_cart["Amount"].sum())
+                total_vat = int((df_cart["VAT"] * df_cart["Unit Price"] * df_cart["Qty"] / 100).sum())
+                shipment = st.number_input("Shipment Cost:", min_value=0, value=int(st.session_state.shipment_cost))
+                st.session_state.shipment_cost = shipment
+                sub_total = total_amount + shipment
+                grand_total = sub_total + total_vat
+
+                df_summary = pd.DataFrame({
+                    "Description": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT Total", "Grand Total"],
+                    "Value": [total_amount, shipment, sub_total, total_vat, grand_total]
+                })
+                st.table(df_summary.style.format({"Value": "{:,.0f}"}))
+
+            # --- LƯU DỮ LIỆU (MAPPING & TAX CODE FIX) ---
+            col_save1, col_save2, _ = st.columns([1.5, 1.5, 7])
+            if col_save1.button("Save Quotation", type="primary", use_container_width=True):
+                try:
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    new_rows = []
+                    for idx, row in edited_df[edited_df["Xóa dòng"] == False].iterrows():
+                        new_rows.append({
+                            "Offer_No": str(offer_no),
+                            "Offer_Date": str(off_date),
+                            "Customer_Name": selected_name,
+                            "Customer_No": str(c_no),        # Cập nhật mapping mới
+                            "Tax_Code": "'" + t_code_display, # Thêm dấu ' để Google Sheet hiểu là chuỗi, giữ số 0
+                            "Address": addr,
+                            "Contact_Person": contact_person,
+                            "Officer": officer,
+                            "Machine_Number": machine_no,
+                            "Ordinal_Number": row["No"],
+                            "Part_Number": row["Part Number"],
+                            "Part_Name": row["Part Name"],
+                            "Qty": row["Qty"],
+                            "Unit": row["Unit"],
+                            "VAT_Rate": row["VAT"],
+                            "Unit_Price": row["Unit Price"],
+                            "Discount_Percent": row["% Discount"],
+                            "Amount": row["Amount"],
+                            "Total_Amount": total_amount,
+                            "Shipment_Cost": shipment,
+                            "Sub_Total": sub_total,
+                            "VAT_Total": total_vat,
+                            "Grand_Total": grand_total
+                        })
+                    
+                    df_to_save = pd.DataFrame(new_rows)
+                    
+                    try:
+                        existing_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details")
+                        # Chuyển Tax_Code cũ về string để tránh lỗi khi nối (concat)
+                        if "Tax_Code" in existing_data.columns:
+                            existing_data["Tax_Code"] = existing_data["Tax_Code"].astype(str)
+                        updated_df = pd.concat([existing_data, df_to_save], ignore_index=True)
+                    except:
+                        updated_df = df_to_save
+
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=updated_df)
+                    st.success(f"Quotation {offer_no} saved and Tax Code formatted!")
+                    st.session_state.cart = [] 
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error saving: {e}")
+
+            if col_save2.button("Print PDF", use_container_width=True):
+                st.info("Feature Coming Soon")
+
+    elif st.session_state.page_view == "Manage":
+        st.info("Order Management Page")
