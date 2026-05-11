@@ -36,8 +36,11 @@ if 'search_error' not in st.session_state: st.session_state.search_error = ""
 
 # --- 3. CALLBACK EDIT QUOTATION ---
 def on_edit_click():
-    target_no = st.session_state.get('selected_offer_to_edit')
-    if not target_no: return
+    display_val = st.session_state.get('selected_offer_to_edit')
+    if not display_val: return
+    # Tách lấy Offer No từ chuỗi "Offer No _ Customer Name"
+    target_no = display_val.split(" _ ")[0]
+    
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         all_offers = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=0)
@@ -71,7 +74,6 @@ def on_edit_click():
 with st.sidebar:
     st.header("MENU")
     option = st.radio("Lựa chọn:", ["Spare Part Quotation", "Service Quotation"])
-    # KHÔI PHỤC NÚT LÀM MỚI DỮ LIỆU
     if st.button("Làm mới dữ liệu", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
@@ -112,14 +114,11 @@ if df_mst is not None and option == "Spare Part Quotation":
         st.markdown("---")
         # --- CART SECTION ---
         search_input = st.text_input("Search Part Number:", placeholder="2024956492;2031956280")
-        
-        # HIỂN THỊ THÔNG BÁO LỖI NGAY DƯỚI Ô TÌM KIẾM
         if st.session_state.search_error:
             st.error(st.session_state.search_error)
-            st.session_state.search_error = "" # Tự xóa sau khi hiện
+            st.session_state.search_error = ""
 
         col_btn1, col_btn2, _ = st.columns([1.5, 1.5, 7])
-        
         if col_btn1.button("Add to Cart", type="primary", use_container_width=True):
             if search_input:
                 not_found = []
@@ -128,17 +127,11 @@ if df_mst is not None and option == "Spare Part Quotation":
                     if not match.empty:
                         item = match.iloc[0]
                         st.session_state.cart.append({
-                            "Part Number": str(item.iloc[1]).split('.')[0], 
-                            "Part Name": str(item.iloc[4]), "Qty": 1, "Unit": str(item.iloc[7]), 
-                            "VAT": 8, "Unit Price": int(float(item.iloc[18])) if not pd.isna(item.iloc[18]) else 0, 
-                            "% Discount": 0
+                            "Part Number": str(item.iloc[1]).split('.')[0], "Part Name": str(item.iloc[4]), "Qty": 1, 
+                            "Unit": str(item.iloc[7]), "VAT": 8, "Unit Price": int(float(item.iloc[18])) if not pd.isna(item.iloc[18]) else 0, "% Discount": 0
                         })
                     else: not_found.append(code)
-                
-                if not_found:
-                    st.session_state.search_error = f"Không tìm thấy Part Number: {', '.join(not_found)}"
-                else:
-                    st.session_state.search_error = ""
+                if not_found: st.session_state.search_error = f"Không tìm thấy Part Number: {', '.join(not_found)}"
                 st.rerun()
         
         if col_btn2.button("Delete Cart", use_container_width=True):
@@ -164,9 +157,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
                     "Delete": st.column_config.CheckboxColumn("Delete")
                 },
-                hide_index=True,
-                use_container_width=True,
-                key="offer_editor"
+                hide_index=True, use_container_width=True, key="offer_editor"
             )
 
             if not edited_df.equals(df_display):
@@ -206,11 +197,12 @@ if df_mst is not None and option == "Spare Part Quotation":
                     exist = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=0)
                     upd = pd.concat([exist[exist["Offer_No"].astype(str) != str(offer_no)], pd.DataFrame(rows)], ignore_index=True)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=upd)
-                    st.success("Đã lưu thành công!"); st.session_state.cart = []; st.session_state.editing_mode = False; st.rerun()
+                    st.success("Đã lưu!"); st.session_state.cart = []; st.session_state.editing_mode = False; st.rerun()
                 except Exception as e: st.error(f"Lỗi: {e}")
 
             col_f1, col_f2, col_f3, _ = st.columns([1.5, 1.5, 2, 5])
             if col_f1.button("Save Quotation", type="primary", use_container_width=True): save_final("")
+            if col_f2.button("Print PDF", use_container_width=True): st.info("Chức năng Print PDF đang được bảo trì.")
             if st.session_state.editing_mode and col_f3.button("Confirmed Quotation", use_container_width=True): save_final("confirmed")
 
         # --- SEARCH EDIT ---
@@ -220,7 +212,12 @@ if df_mst is not None and option == "Spare Part Quotation":
             conn = st.connection("gsheets", type=GSheetsConnection)
             off_data = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=0)
             if not off_data.empty:
-                s_list = sorted(off_data["Offer_No"].astype(str).unique().tolist(), reverse=True)
+                # Tạo danh sách hiển thị theo format: Offer No _ Customer Name
+                # Lấy dữ liệu duy nhất dựa trên Offer_No
+                unique_offers = off_data.drop_duplicates(subset=["Offer_No"])
+                s_list = (unique_offers["Offer_No"].astype(str) + " _ " + unique_offers["Customer_Name"].astype(str)).tolist()
+                s_list.sort(reverse=True)
+                
                 st.selectbox("Select Offer No:", options=s_list, key="selected_offer_to_edit")
                 st.button("Edit Quotation", use_container_width=True, on_click=on_edit_click)
         except: pass
