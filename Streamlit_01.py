@@ -2,12 +2,13 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
-import json
+import gspread # Thư viện bổ sung để ghi chính xác ô I7
 
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(layout="wide", page_title="Spare Part Quotation System")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8/edit#gid=903775380"
+SPREADSHEET_ID = "1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
 
 # --- 2. HÀM LOAD DỮ LIỆU ---
 @st.cache_data(ttl=300)
@@ -34,33 +35,28 @@ if 'editing_mode' not in st.session_state: st.session_state.editing_mode = False
 if 'edit_header' not in st.session_state: st.session_state.edit_header = {}
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
 
-# --- 3. HÀM PRINT PDF ĐÃ FIX ---
+# --- 3. HÀM PRINT PDF (SỬA LẠI ĐỂ GHI ĐÚNG Ô I7 VÀ GIỮ DỮ LIỆU) ---
 def print_pdf_to_sheet(off_no):
     try:
+        # Sử dụng client trực tiếp từ gsheets connection để truy cập vào gspread
         conn = st.connection("gsheets", type=GSheetsConnection)
         
-        # Tạo một DataFrame giả lập cấu trúc của tab "Offer Sample"
-        # Chúng ta cần đưa giá trị vào ô I7 (Hàng 7, Cột 9)
-        # Lưu ý: Python index từ 0, nên I7 là hàng index 6, cột index 8
+        # Lấy quyền truy cập tầng thấp hơn (gspread) để ghi cell-level
+        # Lưu ý: Client này sử dụng file secrets.toml bạn đã cấu hình
+        client = conn._spreadsheet_backend._client 
+        sh = client.open_by_key(SPREADSHEET_ID)
+        worksheet = sh.worksheet("Offer Sample")
         
-        data_to_update = [["" for _ in range(10)] for _ in range(7)] # Tạo lưới 7 hàng x 10 cột
-        data_to_update[6][8] = off_no # Gán Offer_No vào vị trí tương ứng I7
+        # Ghi giá trị vào ô I7 (Hàng 7, Cột 9)
+        # Hàm update_acell chỉ ghi đúng 1 ô, không ảnh hưởng đến các ô khác
+        worksheet.update_acell('I7', off_no)
         
-        df_print = pd.DataFrame(data_to_update)
-        
-        # Ghi đè vào tab "Offer Sample". 
-        # Cách này dùng hàm update chuẩn của thư viện nên sẽ không bị lỗi _connector hay range.
-        conn.update(
-            spreadsheet=SHEET_URL, 
-            worksheet="Offer Sample", 
-            data=df_print
-        )
-        st.success(f"✅ Đã chuẩn bị in cho Offer No: {off_no}. Vui lòng kiểm tra tab 'Offer Sample' trên Google Sheets.")
+        st.success(f"✅ Đã lưu Offer No: {off_no} vào ô I7 của tab 'Offer Sample'.")
     except Exception as e:
         st.error(f"Lỗi khi thực hiện Print PDF: {e}")
-        st.info("Mẹo: Hãy đảm bảo bạn đã cấp quyền Editor cho Email Service Account trong file Google Sheets.")
+        st.info("Hãy đảm bảo thư viện 'gspread' đã được thêm vào requirements.txt")
 
-# --- 4. CALLBACK EDIT QUOTATION (Giữ nguyên của bạn) ---
+# --- 4. CALLBACK EDIT QUOTATION ---
 def on_edit_click():
     display_val = st.session_state.get('selected_offer_to_edit')
     if not display_val: return
@@ -190,7 +186,6 @@ if df_mst is not None and option == "Spare Part Quotation":
                 st.session_state.cart = filtered_df[["Part Number", "Part Name", "Qty", "Unit", "VAT", "Unit Price", "% Discount"]].to_dict('records')
                 st.rerun()
 
-            # --- SUMMARY TABLE ---
             st.markdown("---")
             col_sum1, col_sum2 = st.columns([6, 4])
             with col_sum2:
@@ -203,7 +198,6 @@ if df_mst is not None and option == "Spare Part Quotation":
                     "Value": [total_amount, shipment, total_amount+shipment, total_vat, total_amount+shipment+total_vat]
                 }).style.format({"Value": "{:,.0f}"}))
 
-            # --- NÚT BẤM ---
             def save_final(status=""):
                 try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -227,11 +221,7 @@ if df_mst is not None and option == "Spare Part Quotation":
 
             col_f1, col_f2, col_f3, _ = st.columns([1.5, 1.5, 2, 5])
             if col_f1.button("Save Quotation", type="primary", use_container_width=True): save_final("")
-            
-            # SỬA NÚT PRINT PDF TẠI ĐÂY
-            if col_f2.button("Print PDF", use_container_width=True): 
-                print_pdf_to_sheet(offer_no)
-                
+            if col_f2.button("Print PDF", use_container_width=True): print_pdf_to_sheet(offer_no)
             if st.session_state.editing_mode and col_f3.button("Confirmed Quotation", use_container_width=True): save_final("confirmed")
 
         # --- SEARCH EDIT ---
@@ -244,7 +234,6 @@ if df_mst is not None and option == "Spare Part Quotation":
                 unique_offers = off_data.drop_duplicates(subset=["Offer_No"])
                 s_list = (unique_offers["Offer_No"].astype(str) + " _ " + unique_offers["Customer_Name"].astype(str)).tolist()
                 s_list.sort(reverse=True)
-                
                 st.selectbox("Select Offer No:", options=s_list, key="selected_offer_to_edit")
                 st.button("Edit Quotation", use_container_width=True, on_click=on_edit_click)
         except: pass
