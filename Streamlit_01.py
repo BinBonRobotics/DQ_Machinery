@@ -36,25 +36,28 @@ if 'edit_header' not in st.session_state: st.session_state.edit_header = {}
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
 if 'original_data_snapshot' not in st.session_state: st.session_state.original_data_snapshot = None
 
-# --- 3. HÀM PRINT PDF (Cập nhật mapping theo yêu cầu mới) ---
-def print_pdf_to_sheet(off_no, off_date, cust_name, cust_no, machine_no):
+# --- 3. HÀM PRINT PDF (Cập nhật mapping mới theo ảnh) ---
+def print_pdf_to_sheet(off_no, off_date, cust_name, cust_no, machine_no, officer, contact_p):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         client = conn._instance._client
         sh = client.open_by_key(SPREADSHEET_ID)
         worksheet = sh.worksheet("Offer Sample")
         
-        # Tạo danh sách các cập nhật theo mapping
-        # I7: Offer No, I5: Offer Date, I10: Customer Name, I11: Customer No, I12: Machine Number
+        # Mapping theo yêu cầu mới nhất của bạn:
+        # I7: Offer No | I5: Offer Date | I10: Customer Name | I11: Customer No
+        # I12: Machine Number | I8: Officer | B12: Contact Person
         updates = [
             {'range': 'I7', 'values': [[off_no]]},
             {'range': 'I5', 'values': [[str(off_date)]]},
             {'range': 'I10', 'values': [[cust_name]]},
             {'range': 'I11', 'values': [[cust_no]]},
-            {'range': 'I12', 'values': [[machine_no]]}
+            {'range': 'I12', 'values': [[machine_no]]},
+            {'range': 'I8', 'values': [[officer]]},
+            {'range': 'B12', 'values': [[contact_p]]}
         ]
         worksheet.batch_update(updates)
-        st.success(f"✅ Đã cập nhật dữ liệu vào tab Offer Sample thành công!")
+        st.success(f"✅ Đã cập nhật dữ liệu Print PDF vào tab Offer Sample!")
     except Exception as e:
         st.error(f"Lỗi Print PDF: {e}")
 
@@ -110,7 +113,7 @@ with st.sidebar:
 if df_mst is not None and option == "Spare Part Quotation":
     col_b1, col_b2, _ = st.columns([2, 2, 5])
     if col_b1.button("New Spare Part Offer", use_container_width=True): 
-        st.session_state.page_view = "New"; st.session_state.editing_mode = False; st.session_state.cart = []; st.session_state.edit_header = {}; st.session_error = ""; st.rerun()
+        st.session_state.page_view = "New"; st.session_state.editing_mode = False; st.session_state.cart = []; st.session_state.edit_header = {}; st.session_state.search_error = ""; st.rerun()
     if col_b2.button("Order Management", use_container_width=True): st.session_state.page_view = "Manage"
 
     if st.session_state.page_view == "New":
@@ -222,7 +225,7 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "Customer_No": c_no, "Tax_Code": f"'{t_code_display}", "Address": addr,
                             "Contact_Person": contact_person, "Officer": officer, "Machine_Number": machine_no,
                             "Ordinal_Number": r["No"], "Part_Number": r["Part Number"], "Part_Name": r["Part Name"],
-                            "Qty": r["Qty"], "Unit": r["Unit"], "VAT_Rate": r["VAT"], "Unit_Price": r["Unit Price"],
+                            "Qty": r["Qty"], "Unit": r["Unit"], "VAT_Rate": r["VAT"], "Unit_Price": r["Unit_Price"],
                             "Discount_Percent": r["% Discount"], "Amount": r["Amount"], "Total_Amount": total_amount,
                             "Shipment_Cost": shipment, "Sub_Total": total_amount+shipment, "VAT_Total": total_vat,
                             "Grand_Total": total_amount+shipment+total_vat, "Status": status
@@ -236,7 +239,8 @@ if df_mst is not None and option == "Spare Part Quotation":
             col_f1, col_f2, col_f3, _ = st.columns([1.5, 1.5, 2, 5])
             if col_f1.button("Save Quotation", type="primary", use_container_width=True): save_final("")
             if col_f2.button("Print PDF", use_container_width=True): 
-                print_pdf_to_sheet(offer_no, off_date, selected_name, c_no, machine_no)
+                # Truyền đầy đủ các tham số mới vào hàm Print
+                print_pdf_to_sheet(offer_no, off_date, selected_name, c_no, machine_no, officer, contact_person)
             if st.session_state.editing_mode and col_f3.button("Confirmed Quotation", use_container_width=True): save_final("confirmed")
 
         st.markdown("---")
