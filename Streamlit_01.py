@@ -34,38 +34,32 @@ if 'shipment_cost' not in st.session_state: st.session_state.shipment_cost = 0
 if 'editing_mode' not in st.session_state: st.session_state.editing_mode = False
 if 'edit_header' not in st.session_state: st.session_state.edit_header = {}
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
+if 'original_data_snapshot' not in st.session_state: st.session_state.original_data_snapshot = None
 
-# --- 3. HÀM PRINT PDF (LOGIC TỰ ĐỘNG DỌN DẸP THEO PART NUMBER) ---
+# --- 3. HÀM PRINT PDF (Logic dọn dẹp và điền hàng hóa mới) ---
 def print_pdf_to_sheet(off_no, off_date, officer, cust_name, cust_no, machine_no, contact_p, cart_items):
     try:
-        if not cart_items:
-            st.warning("Giỏ hàng trống!")
-            return
-
         conn = st.connection("gsheets", type=GSheetsConnection)
         client = conn._instance._client
         sh = client.open_by_key(SPREADSHEET_ID)
         worksheet = sh.worksheet("Offer Sample")
         
-        # --- BƯỚC 1: XÁC ĐỊNH VÀ XÓA CÁC DÒNG CÓ PART NUMBER CŨ ---
-        # Đọc dữ liệu cột B từ dòng 18 đến dòng 40 (giới hạn an toàn của vùng hàng hóa)
-        col_b_values = worksheet.get("B18:B40") 
-        
-        num_rows_to_clear = 0
-        if col_b_values:
-            for val in col_b_values:
-                if val and str(val[0]).strip(): # Nếu ô có dữ liệu
-                    num_rows_to_clear += 1
+        # --- BƯỚC 1: DỌN DẸP LOGIC (Xóa các dòng có Part Number cũ từ B18 trở xuống) ---
+        # Kiểm tra vùng từ B18 đến B33 (vùng bạn đang chừa để lưu hàng hóa)
+        col_b_check = worksheet.get("B18:B33")
+        num_to_clear = 0
+        if col_b_check:
+            for val in col_b_check:
+                if val and str(val[0]).strip():
+                    num_to_clear += 1
                 else:
-                    break # Dừng lại ngay khi gặp ô trống đầu tiên
+                    break
         
-        if num_rows_to_clear > 0:
-            # Xóa vùng dữ liệu cũ tương ứng với số Part Number tìm thấy
-            clear_range = f"A18:J{17 + num_rows_to_clear}"
-            worksheet.batch_clear([clear_range])
+        if num_to_clear > 0:
+            worksheet.batch_clear([f"A18:J{17 + num_to_clear}"])
 
-        # --- BƯỚC 2: ĐIỀN DỮ LIỆU MỚI ---
-        # 1. Header
+        # --- BƯỚC 2: CHUẨN BỊ DỮ LIỆU MỚI ---
+        # 1. Header mapping
         updates = [
             {'range': 'I5', 'values': [[str(off_date)]]},
             {'range': 'I7', 'values': [[off_no]]},
@@ -76,30 +70,30 @@ def print_pdf_to_sheet(off_no, off_date, officer, cust_name, cust_no, machine_no
             {'range': 'B12', 'values': [[contact_p]]}
         ]
 
-        # 2. Hàng hóa từ giỏ hàng
+        # 2. Goods mapping (từ dòng 18)
         new_rows = []
         for idx, item in enumerate(cart_items, 1):
-            amt = int(item["Qty"] * item["Unit Price"] * (1 - item["% Discount"] / 100))
+            amount = int(item["Qty"] * item["Unit Price"] * (1 - item["% Discount"] / 100))
             new_rows.append([
                 idx, item["Part Number"], item["Part Name"], item["Qty"], 
-                item["Unit"], item["VAT"], item["Unit Price"], item["% Discount"], "", amt
+                item["Unit"], item["VAT"], item["Unit Price"], item["% Discount"], "", amount
             ])
         
-        product_range = f"A18:J{17 + len(new_rows)}"
-        updates.append({'range': product_range, 'values': new_rows})
+        if new_rows:
+            updates.append({'range': f'A18:J{17 + len(new_rows)}', 'values': new_rows})
 
-        # Thực thi update toàn bộ
+        # --- BƯỚC 3: THỰC THI ---
         worksheet.batch_update(updates)
-        st.success(f"✅ Đã dọn dẹp {num_rows_to_clear} món cũ và in {len(new_rows)} món mới thành công!")
-        
+        st.success(f"✅ Đã dọn dẹp món cũ và chèn {len(new_rows)} món mới vào Offer Sample!")
     except Exception as e:
         st.error(f"Lỗi Print PDF: {e}")
 
-# --- 4. CALLBACK EDIT QUOTATION (Giữ nguyên) ---
+# --- 4. CALLBACK EDIT QUOTATION (Giữ nguyên gốc của bạn) ---
 def on_edit_click():
     display_val = st.session_state.get('selected_offer_to_edit')
     if not display_val: return
     target_no = display_val.split(" _ ")[0]
+    
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         all_offers = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=0)
@@ -127,9 +121,15 @@ def on_edit_click():
             st.session_state.shipment_cost = int(first_row["Shipment_Cost"])
             st.session_state.editing_mode = True
             st.session_state.page_view = "New"
+            
+            st.session_state.original_data_snapshot = json.dumps({
+                "cart": new_cart,
+                "shipment": int(first_row["Shipment_Cost"])
+            }, sort_keys=True)
+            
     except Exception as e: st.error(f"Lỗi load Edit: {e}")
 
-# --- 5. GIAO DIỆN CHÍNH (Giữ nguyên các tính năng ổn định) ---
+# --- 5. GIAO DIỆN CHÍNH ---
 with st.sidebar:
     st.header("MENU")
     option = st.radio("Lựa chọn:", ["Spare Part Quotation", "Service Quotation"])
@@ -140,18 +140,21 @@ with st.sidebar:
 if df_mst is not None and option == "Spare Part Quotation":
     col_b1, col_b2, _ = st.columns([2, 2, 5])
     if col_b1.button("New Spare Part Offer", use_container_width=True): 
-        st.session_state.page_view = "New"; st.session_state.editing_mode = False; st.session_state.cart = []; st.session_state.edit_header = {}; st.rerun()
+        st.session_state.page_view = "New"; st.session_state.editing_mode = False; st.session_state.cart = []; st.session_state.edit_header = {}; st.session_state.search_error = ""; st.rerun()
     if col_b2.button("Order Management", use_container_width=True): st.session_state.page_view = "Manage"
 
     if st.session_state.page_view == "New":
-        # (Phần Header UI giữ nguyên)
+        # --- HEADER (UI giữ nguyên gốc) ---
         names = df_mst.iloc[:, 2].dropna().unique().tolist()
         default_name = st.session_state.edit_header.get("Customer_Name", names[0] if names else "")
         selected_name = st.selectbox("Customer Name:", options=names, index=names.index(default_name) if default_name in names else 0)
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
         c_no = str(cust_row.iloc[1]).split('.')[0]
+        st.text_input("Customer No:", value=c_no, disabled=True)
         t_code_display = st.session_state.edit_header.get("Clean_Tax", str(int(float(cust_row.iloc[5]))).zfill(10) if not pd.isna(cust_row.iloc[5]) else "")
+        st.text_input("Tax Code:", value=t_code_display, disabled=True)
         addr = str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else ""
+        st.text_area("Address:", value=addr, height=70, disabled=True)
         
         f_contact = df_contact[df_contact.iloc[:, 1].astype(str).str.contains(c_no)]
         contact_list = f_contact.iloc[:, 7].dropna().tolist() if not f_contact.empty else ["N/A"]
@@ -168,10 +171,16 @@ if df_mst is not None and option == "Spare Part Quotation":
         offer_no = st.text_input("Offer No:", value=st.session_state.edit_header.get("Offer_No", f"{off_date.year}-{off_date.month:02d}-0001"))
 
         st.markdown("---")
-        # CART SECTION
-        search_input = st.text_input("Search Part Number:", placeholder="Dán mã vào đây...")
-        if st.button("Add to Cart", type="primary"):
+        # --- CART SECTION (UI giữ nguyên gốc) ---
+        search_input = st.text_input("Search Part Number:", placeholder="2024956492;2031956280")
+        if st.session_state.search_error:
+            st.error(st.session_state.search_error)
+            st.session_state.search_error = ""
+
+        col_btn1, col_btn2, _ = st.columns([1.5, 1.5, 7])
+        if col_btn1.button("Add to Cart", type="primary", use_container_width=True):
             if search_input:
+                not_found = []
                 for code in [c.strip() for c in search_input.split(';')]:
                     match = df_sp[df_sp.iloc[:, 1].astype(str).str.replace(r'\.0$', '', regex=True) == code]
                     if not match.empty:
@@ -180,24 +189,85 @@ if df_mst is not None and option == "Spare Part Quotation":
                             "Part Number": str(item.iloc[1]).split('.')[0], "Part Name": str(item.iloc[4]), "Qty": 1, 
                             "Unit": str(item.iloc[7]), "VAT": 8, "Unit Price": int(float(item.iloc[18])) if not pd.isna(item.iloc[18]) else 0, "% Discount": 0
                         })
+                    else: not_found.append(code)
+                if not_found: st.session_state.search_error = f"Không tìm thấy Part Number: {', '.join(not_found)}"
                 st.rerun()
         
+        if col_btn2.button("Delete Cart", use_container_width=True):
+            st.session_state.cart = []; st.session_state.shipment_cost = 0; st.session_state.search_error = ""; st.rerun()
+
         if st.session_state.cart:
             df_display = pd.DataFrame(st.session_state.cart)
             df_display["Amount"] = (df_display["Qty"] * df_display["Unit Price"] * (1 - df_display["% Discount"] / 100)).astype(int)
             df_display.insert(0, "No", range(1, len(df_display) + 1))
-            
-            edited_df = st.data_editor(df_display, hide_index=True, use_container_width=True, key="offer_editor")
+            df_display["Delete"] = False
 
-            col_f1, col_f2, _ = st.columns([1.5, 1.5, 7])
-            # (Phần Save giữ nguyên logic của bạn)
-            if col_f1.button("Save Quotation", use_container_width=True):
-                st.info("Chức năng Save đang giữ nguyên code của bạn...")
+            edited_df = st.data_editor(
+                df_display,
+                column_config={
+                    "No": st.column_config.NumberColumn("No", disabled=True, width="small"),
+                    "Amount": st.column_config.NumberColumn("Amount", format="%,d", disabled=True),
+                    "Delete": st.column_config.CheckboxColumn("Delete")
+                },
+                hide_index=True, use_container_width=True, key="offer_editor"
+            )
+
+            if not edited_df.equals(df_display):
+                filtered_df = edited_df[edited_df["Delete"] == False]
+                st.session_state.cart = filtered_df[["Part Number", "Part Name", "Qty", "Unit", "VAT", "Unit Price", "% Discount"]].to_dict('records')
+                st.rerun()
+
+            # --- SUMMARY TABLE ---
+            st.markdown("---")
+            col_sum1, col_sum2 = st.columns([6, 4])
+            with col_sum2:
+                total_amount = int(edited_df["Amount"].sum())
+                shipment = st.number_input("Shipment Cost:", value=int(st.session_state.shipment_cost))
+                st.session_state.shipment_cost = shipment
+                total_vat = int((edited_df["VAT"] * edited_df["Amount"] / 100).sum())
+                st.table(pd.DataFrame({
+                    "Description": ["Total Amount", "Shipment Cost", "Sub-Total", "VAT Total", "Grand Total"],
+                    "Value": [total_amount, shipment, total_amount+shipment, total_vat, total_amount+shipment+total_vat]
+                }).style.format({"Value": "{:,.0f}"}))
+
+            # --- NÚT BẤM VÀ SAVE LOGIC (Giữ nguyên gốc) ---
+            def save_final(status=""):
+                try:
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    rows = []
+                    actual_date = str(off_date)
+                    if st.session_state.editing_mode:
+                        current_data = json.dumps({"cart": st.session_state.cart, "shipment": int(st.session_state.shipment_cost)}, sort_keys=True)
+                        if current_data != st.session_state.original_data_snapshot:
+                            actual_date = datetime.now().strftime('%Y-%m-%d')
+                    
+                    for idx, r in edited_df.iterrows():
+                        rows.append({
+                            "Offer_No": offer_no, "Offer_Date": actual_date, "Customer_Name": selected_name, 
+                            "Customer_No": c_no, "Tax_Code": f"'{t_code_display}", "Address": addr,
+                            "Contact_Person": contact_person, "Officer": officer, "Machine_Number": machine_no,
+                            "Ordinal_Number": r["No"], "Part_Number": r["Part Number"], "Part_Name": r["Part Name"],
+                            "Qty": r["Qty"], "Unit": r["Unit"], "VAT_Rate": r["VAT"], "Unit_Price": r["Unit Price"],
+                            "Discount_Percent": r["% Discount"], "Amount": r["Amount"], "Total_Amount": total_amount,
+                            "Shipment_Cost": shipment, "Sub_Total": total_amount+shipment, "VAT_Total": total_vat,
+                            "Grand_Total": total_amount+shipment+total_vat, "Status": status
+                        })
+                    exist = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=0)
+                    upd = pd.concat([exist[exist["Offer_No"].astype(str) != str(offer_no)], pd.DataFrame(rows)], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=upd)
+                    st.success(f"Đã lưu thành công!"); st.session_state.cart = []; st.session_state.editing_mode = False; st.rerun()
+                except Exception as e: st.error(f"Lỗi: {e}")
+
+            col_f1, col_f2, col_f3, _ = st.columns([1.5, 1.5, 2, 5])
+            if col_f1.button("Save Quotation", type="primary", use_container_width=True): save_final("")
             
-            # NÚT PRINT PDF ĐÃ CẬP NHẬT LOGIC
-            if col_f2.button("Print PDF", use_container_width=True, type="primary"): 
+            # NÚT PRINT PDF ĐƯỢC CHÈN LOGIC MỚI
+            if col_f2.button("Print PDF", use_container_width=True): 
                 print_pdf_to_sheet(offer_no, off_date, officer, selected_name, c_no, machine_no, contact_person, st.session_state.cart)
+            
+            if st.session_state.editing_mode and col_f3.button("Confirmed Quotation", use_container_width=True): save_final("confirmed")
 
+        # --- SEARCH EDIT (UI giữ nguyên gốc) ---
         st.markdown("---")
         st.subheader("Search & Edit Saved Quotation")
         try:
