@@ -8,7 +8,6 @@ import json
 st.set_page_config(layout="wide", page_title="Spare Part Quotation System")
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8/edit#gid=903775380"
-# ID Spreadsheet để truy cập trực tiếp qua gspread
 SPREADSHEET_ID = "1gtvdEdotdJIti4s8gvHxgv0Q6jl0fAhuxhym9uuCQt8"
 
 # --- 2. HÀM LOAD DỮ LIỆU ---
@@ -35,8 +34,10 @@ if 'shipment_cost' not in st.session_state: st.session_state.shipment_cost = 0
 if 'editing_mode' not in st.session_state: st.session_state.editing_mode = False
 if 'edit_header' not in st.session_state: st.session_state.edit_header = {}
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
+# Biến phụ để kiểm tra thay đổi
+if 'original_data_snapshot' not in st.session_state: st.session_state.original_data_snapshot = None
 
-# --- 3. HÀM PRINT PDF (GHI Ô I7) ---
+# --- 3. HÀM PRINT PDF ---
 def print_pdf_to_sheet(off_no):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
@@ -81,6 +82,13 @@ def on_edit_click():
             st.session_state.shipment_cost = int(first_row["Shipment_Cost"])
             st.session_state.editing_mode = True
             st.session_state.page_view = "New"
+            
+            # CHỤP ẢNH DỮ LIỆU GỐC ĐỂ SO SÁNH
+            st.session_state.original_data_snapshot = json.dumps({
+                "cart": new_cart,
+                "shipment": int(first_row["Shipment_Cost"])
+            }, sort_keys=True)
+            
     except Exception as e: st.error(f"Lỗi load Edit: {e}")
 
 # --- 5. GIAO DIỆN CHÍNH ---
@@ -196,14 +204,23 @@ if df_mst is not None and option == "Spare Part Quotation":
                 try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     rows = []
-                    # --- PHẦN SỬA ĐỔI: Cập nhật ngày tháng hiện tại nếu đang trong chế độ Edit ---
-                    current_date_str = datetime.now().strftime('%Y-%m-%d')
-                    actual_date = current_date_str if st.session_state.editing_mode else str(off_date)
+                    
+                    # LOGIC KIỂM TRA THAY ĐỔI ĐỂ CẬP NHẬT NGÀY
+                    actual_date = str(off_date) # Mặc định dùng ngày trên giao diện
+                    if st.session_state.editing_mode:
+                        current_data = json.dumps({
+                            "cart": st.session_state.cart,
+                            "shipment": int(st.session_state.shipment_cost)
+                        }, sort_keys=True)
+                        
+                        # Nếu dữ liệu hiện tại khác dữ liệu gốc khi load -> Cập nhật ngày hôm nay
+                        if current_data != st.session_state.original_data_snapshot:
+                            actual_date = datetime.now().strftime('%Y-%m-%d')
                     
                     for idx, r in edited_df.iterrows():
                         rows.append({
                             "Offer_No": offer_no, 
-                            "Offer_Date": actual_date, # Sử dụng biến thực tế (ngày mới nếu là edit)
+                            "Offer_Date": actual_date, 
                             "Customer_Name": selected_name, 
                             "Customer_No": c_no, "Tax_Code": f"'{t_code_display}", "Address": addr,
                             "Contact_Person": contact_person, "Officer": officer, "Machine_Number": machine_no,
