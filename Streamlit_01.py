@@ -40,7 +40,6 @@ if 'search_error' not in st.session_state: st.session_state.search_error = ""
 def print_pdf_to_sheet(off_no):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # Sử dụng gspread client từ connection để ghi trực tiếp vào ô I7
         client = conn._instance._client
         sh = client.open_by_key(SPREADSHEET_ID)
         worksheet = sh.worksheet("Offer Sample")
@@ -53,7 +52,6 @@ def print_pdf_to_sheet(off_no):
 def on_edit_click():
     display_val = st.session_state.get('selected_offer_to_edit')
     if not display_val: return
-    # Tách lấy Offer No từ chuỗi "Offer No _ Customer Name"
     target_no = display_val.split(" _ ")[0]
     
     try:
@@ -198,9 +196,15 @@ if df_mst is not None and option == "Spare Part Quotation":
                 try:
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     rows = []
+                    # --- PHẦN SỬA ĐỔI: Cập nhật ngày tháng hiện tại nếu đang trong chế độ Edit ---
+                    current_date_str = datetime.now().strftime('%Y-%m-%d')
+                    actual_date = current_date_str if st.session_state.editing_mode else str(off_date)
+                    
                     for idx, r in edited_df.iterrows():
                         rows.append({
-                            "Offer_No": offer_no, "Offer_Date": str(off_date), "Customer_Name": selected_name, 
+                            "Offer_No": offer_no, 
+                            "Offer_Date": actual_date, # Sử dụng biến thực tế (ngày mới nếu là edit)
+                            "Customer_Name": selected_name, 
                             "Customer_No": c_no, "Tax_Code": f"'{t_code_display}", "Address": addr,
                             "Contact_Person": contact_person, "Officer": officer, "Machine_Number": machine_no,
                             "Ordinal_Number": r["No"], "Part_Number": r["Part Number"], "Part_Name": r["Part Name"],
@@ -212,12 +216,11 @@ if df_mst is not None and option == "Spare Part Quotation":
                     exist = conn.read(spreadsheet=SHEET_URL, worksheet="Offer_Details", ttl=0)
                     upd = pd.concat([exist[exist["Offer_No"].astype(str) != str(offer_no)], pd.DataFrame(rows)], ignore_index=True)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Offer_Details", data=upd)
-                    st.success("Đã lưu!"); st.session_state.cart = []; st.session_state.editing_mode = False; st.rerun()
+                    st.success(f"Đã lưu thành công (Ngày: {actual_date})!"); st.session_state.cart = []; st.session_state.editing_mode = False; st.rerun()
                 except Exception as e: st.error(f"Lỗi: {e}")
 
             col_f1, col_f2, col_f3, _ = st.columns([1.5, 1.5, 2, 5])
             if col_f1.button("Save Quotation", type="primary", use_container_width=True): save_final("")
-            # Tích hợp hàm in PDF mới tại đây
             if col_f2.button("Print PDF", use_container_width=True): print_pdf_to_sheet(offer_no)
             if st.session_state.editing_mode and col_f3.button("Confirmed Quotation", use_container_width=True): save_final("confirmed")
 
