@@ -2,7 +2,6 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
-import gspread # Thư viện bổ sung để ghi chính xác ô I7
 
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(layout="wide", page_title="Spare Part Quotation System")
@@ -38,23 +37,18 @@ if 'search_error' not in st.session_state: st.session_state.search_error = ""
 # --- 3. HÀM PRINT PDF (SỬA LẠI ĐỂ GHI ĐÚNG Ô I7 VÀ GIỮ DỮ LIỆU) ---
 def print_pdf_to_sheet(off_no):
     try:
-        # Sử dụng client trực tiếp từ gsheets connection để truy cập vào gspread
         conn = st.connection("gsheets", type=GSheetsConnection)
-        
-        # Lấy quyền truy cập tầng thấp hơn (gspread) để ghi cell-level
-        # Lưu ý: Client này sử dụng file secrets.toml bạn đã cấu hình
-        client = conn._spreadsheet_backend._client 
+        # Cách lấy gspread client an toàn nhất hiện nay cho streamlit-gsheets
+        client = conn._instance._client
         sh = client.open_by_key(SPREADSHEET_ID)
         worksheet = sh.worksheet("Offer Sample")
         
-        # Ghi giá trị vào ô I7 (Hàng 7, Cột 9)
-        # Hàm update_acell chỉ ghi đúng 1 ô, không ảnh hưởng đến các ô khác
+        # Ghi giá trị vào ô I7
         worksheet.update_acell('I7', off_no)
         
         st.success(f"✅ Đã lưu Offer No: {off_no} vào ô I7 của tab 'Offer Sample'.")
     except Exception as e:
         st.error(f"Lỗi khi thực hiện Print PDF: {e}")
-        st.info("Hãy đảm bảo thư viện 'gspread' đã được thêm vào requirements.txt")
 
 # --- 4. CALLBACK EDIT QUOTATION ---
 def on_edit_click():
@@ -106,23 +100,27 @@ if df_mst is not None and option == "Spare Part Quotation":
     if col_b2.button("Order Management", use_container_width=True): st.session_state.page_view = "Manage"
 
     if st.session_state.page_view == "New":
-        # --- HEADER ---
+        # (Giữ nguyên phần UI Header từ code cũ của bạn)
         names = df_mst.iloc[:, 2].dropna().unique().tolist()
         default_name = st.session_state.edit_header.get("Customer_Name", names[0] if names else "")
         selected_name = st.selectbox("Customer Name:", options=names, index=names.index(default_name) if default_name in names else 0)
+        
         cust_row = df_mst[df_mst.iloc[:, 2] == selected_name].iloc[0]
         c_no = str(cust_row.iloc[1]).split('.')[0]
-        st.text_input("Customer No:", value=c_no, disabled=True)
         t_code_display = st.session_state.edit_header.get("Clean_Tax", str(int(float(cust_row.iloc[5]))).zfill(10) if not pd.isna(cust_row.iloc[5]) else "")
-        st.text_input("Tax Code:", value=t_code_display, disabled=True)
         addr = str(cust_row.iloc[4]) if not pd.isna(cust_row.iloc[4]) else ""
+        
+        st.text_input("Customer No:", value=c_no, disabled=True)
+        st.text_input("Tax Code:", value=t_code_display, disabled=True)
         st.text_area("Address:", value=addr, height=70, disabled=True)
         
         f_contact = df_contact[df_contact.iloc[:, 1].astype(str).str.contains(c_no)]
         contact_list = f_contact.iloc[:, 7].dropna().tolist() if not f_contact.empty else ["N/A"]
         contact_person = st.selectbox("Contact Person:", options=contact_list, index=contact_list.index(st.session_state.edit_header.get("Contact_Person", contact_list[0])) if st.session_state.edit_header.get("Contact_Person") in contact_list else 0)
+        
         staff_list = df_staff.iloc[:, 1].dropna().tolist()
         officer = st.selectbox("Officer:", options=staff_list, index=staff_list.index(st.session_state.edit_header.get("Officer", staff_list[0])) if st.session_state.edit_header.get("Officer") in staff_list else 0)
+        
         f_machines = df_machines[df_machines.iloc[:, 1].astype(str).str.contains(c_no)]
         machine_list = f_machines.iloc[:, 14].dropna().tolist() if not f_machines.empty else ["N/A"]
         machine_no = st.selectbox("Machine Number:", options=machine_list, index=machine_list.index(st.session_state.edit_header.get("Machine_Number", machine_list[0])) if st.session_state.edit_header.get("Machine_Number") in machine_list else 0)
