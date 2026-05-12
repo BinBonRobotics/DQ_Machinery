@@ -34,18 +34,28 @@ if 'shipment_cost' not in st.session_state: st.session_state.shipment_cost = 0
 if 'editing_mode' not in st.session_state: st.session_state.editing_mode = False
 if 'edit_header' not in st.session_state: st.session_state.edit_header = {}
 if 'search_error' not in st.session_state: st.session_state.search_error = ""
-# Biến phụ để kiểm tra thay đổi
 if 'original_data_snapshot' not in st.session_state: st.session_state.original_data_snapshot = None
 
-# --- 3. HÀM PRINT PDF ---
-def print_pdf_to_sheet(off_no):
+# --- 3. HÀM PRINT PDF (Đã sửa lại theo mapping mới) ---
+def print_pdf_to_sheet(off_no, off_date, officer, cust_name, cust_no, machine_no, contact_p):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         client = conn._instance._client
         sh = client.open_by_key(SPREADSHEET_ID)
         worksheet = sh.worksheet("Offer Sample")
-        worksheet.update_acell('I7', off_no)
-        st.success(f"✅ Đã ghi mã {off_no} vào ô I7 của tab Offer Sample!")
+        
+        # Chuẩn bị dữ liệu cập nhật theo mapping
+        updates = [
+            {'range': 'I5', 'values': [[str(off_date)]]},
+            {'range': 'I7', 'values': [[off_no]]},
+            {'range': 'I8', 'values': [[officer]]},
+            {'range': 'I10', 'values': [[cust_name]]},
+            {'range': 'I11', 'values': [[cust_no]]},
+            {'range': 'I12', 'values': [[machine_no]]},
+            {'range': 'B12', 'values': [[contact_p]]}
+        ]
+        worksheet.batch_update(updates)
+        st.success(f"✅ Đã cập nhật dữ liệu báo giá {off_no} vào tab Offer Sample!")
     except Exception as e:
         st.error(f"Lỗi Print PDF: {e}")
 
@@ -238,7 +248,9 @@ if df_mst is not None and option == "Spare Part Quotation":
 
             col_f1, col_f2, col_f3, _ = st.columns([1.5, 1.5, 2, 5])
             if col_f1.button("Save Quotation", type="primary", use_container_width=True): save_final("")
-            if col_f2.button("Print PDF", use_container_width=True): print_pdf_to_sheet(offer_no)
+            if col_f2.button("Print PDF", use_container_width=True): 
+                # Truyền đầy đủ các thông tin cần mapping vào hàm print
+                print_pdf_to_sheet(offer_no, off_date, officer, selected_name, c_no, machine_no, contact_person)
             if st.session_state.editing_mode and col_f3.button("Confirmed Quotation", use_container_width=True): save_final("confirmed")
 
         # --- SEARCH EDIT ---
